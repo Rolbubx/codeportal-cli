@@ -4,9 +4,13 @@ project(CodePortal LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Interface : FTXUI (third_party/ftxui, version amalgamée) compilé par src/ftxui_impl.cpp.
 add_executable(codeportal
     src/main.cpp
+    src/ftxui_impl.cpp
     src/util.hpp
+    src/tui.hpp
+    src/safety.hpp
     src/json.hpp
     src/http.hpp
     src/state.hpp

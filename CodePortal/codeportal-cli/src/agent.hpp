@@ -45,7 +45,7 @@ struct TurnStats {
         std::string line = std::string(verbs[(size_t)secs % 7]) + " for " + formatDuration(secs);
         if (tools) line += " · " + plural(tools, "tool use");
         if (tokens) line += " · ↓ " + formatTokens(tokens) + " tokens";
-        std::cout << "\n" << P.accent << "✻ " << ansi::reset << P.muted << line << ansi::reset << "\n" << std::flush;
+        out() << "\n" << P.accent << "✻ " << ansi::reset << P.muted << line << ansi::reset << "\n" << std::flush;
     }
 };
 
@@ -78,7 +78,15 @@ std::string systemPrompt() {
            "findstr, dir, type, more, or powershell -NoProfile -Command \"...\" (e.g. Select-Object -First 20).\n"
            "- Read a file before editing it; edit_file's old_text must match the file exactly, once.\n"
            "- Check every tool result yourself and fix errors. Never ask the user for permission to use a tool.\n"
-           "- Ask the user only when the request is genuinely ambiguous.\n"
+           "- For tasks with 3 or more steps, call update_plan first, then again as steps start and finish: the user "
+           "sees a checklist with a progress bar.\n"
+           "- If you need a decision or missing information, call ask_user instead of ending your turn. Use "
+           "wait=false when you can keep working on other parts meanwhile.\n"
+           "- The user can send you messages while you work; they appear in tool results as \"[Message from the "
+           "user ...]\". Take them into account right away.\n"
+           "- Safeguards: you cannot change Windows or system folders, read credentials (API keys, .ssh...), or run "
+           "destructive system commands; writing outside the working directory needs the user's approval. If a "
+           "tool is blocked, do not try to work around it.\n"
            "- When finished, give a short summary of what you did. Use Markdown (lists, tables, code blocks) "
            "when it helps readability." + projectInstructions();
 }
@@ -211,6 +219,14 @@ bool turnUnfinished() {
     return !g.history.empty() && (g.history.back().role == "user" || g.history.back().role == "tool");
 }
 
+// Messages tapés par l'utilisateur pendant que l'agent travaille (et réponses aux questions posées sans
+// attendre) : ajoutés au dernier résultat d'outil, ce qui reste valable pour tous les fournisseurs.
+void deliverNotes() {
+    if (g.history.empty() || g.history.back().role != "tool") return;
+    const auto notes = tui::takeNotes();
+    for (const auto& n : notes) g.history.back().text += "\n\n[Message from the user while you were working: " + n + "]";
+}
+
 // Fait travailler l'agent sur l'historique actuel jusqu'à sa réponse finale.
 // En cas d'erreur, le travail déjà fait (réponses, appels d'outils et résultats) est conservé :
 // /retry reprend là où l'agent s'est arrêté.
@@ -223,9 +239,14 @@ void runAgent() {
     const std::string key = keyFor(*p);
     const std::string model = modelFor(*p);
 
+    struct Busy {  // l'interface sait qu'un tour est en cours (messages mis de côté, Échap, barre)
+        Busy() { tui::setBusy(true); }
+        ~Busy() { tui::setBusy(false); }
+    } busy;
     TurnStats stats;
 
     for (int step = 0; step < kMaxAgentSteps; ++step) {
+        deliverNotes();
         LiveView& lv = LiveView::get();
         lv.reset();
         bool thinkingOpen = false, answerOpen = false, gotUsage = false;
@@ -268,10 +289,10 @@ void runAgent() {
         };
         h.cancelled = [&] { return lv.interrupted(); };
 
-        StreamOutcome out;
+        StreamOutcome res;
         lv.startStatus(randomVerb(), true);
         try {
-            out = streamProvider(*p, key, model, systemPrompt(), g.history, h);
+            res = streamProvider(*p, key, model, systemPrompt(), g.history, h);
         } catch (const std::exception& e) {
             closeAnswer();
             if (lv.inBlock()) lv.endBlock();
@@ -280,19 +301,19 @@ void runAgent() {
             const std::string msg = e.what();
             if (msg.find("HTTP 404") != std::string::npos || msg.find("no longer available") != std::string::npos ||
                 msg.find("not found") != std::string::npos || msg.find("does not exist") != std::string::npos)
-                std::cout << "  " << P.muted << "The model " << model << " seems unavailable. Run " << ansi::bold
+                out() << "  " << P.muted << "The model " << model << " seems unavailable. Run " << ansi::bold
                           << "/model" << ansi::reset << P.muted << " to choose another one." << ansi::reset << "\n";
             else if (msg.find("HTTP 503") != std::string::npos || msg.find("HTTP 529") != std::string::npos ||
                      msg.find("overloaded") != std::string::npos || msg.find("UNAVAILABLE") != std::string::npos)
-                std::cout << "  " << P.muted << model << " is overloaded right now. Try " << ansi::bold << "/retry"
+                out() << "  " << P.muted << model << " is overloaded right now. Try " << ansi::bold << "/retry"
                           << ansi::reset << P.muted << " in a moment, or " << ansi::bold << "/model" << ansi::reset
                           << P.muted << " to pick a lighter one." << ansi::reset << "\n";
             else if (msg.find("HTTP 429") != std::string::npos || msg.find("RESOURCE_EXHAUSTED") != std::string::npos ||
                      msg.find("rate limit") != std::string::npos || msg.find("quota") != std::string::npos)
-                std::cout << "  " << P.muted << "Rate limit reached. Wait a moment, then type " << ansi::bold
+                out() << "  " << P.muted << "Rate limit reached. Wait a moment, then type " << ansi::bold
                           << "/retry" << ansi::reset << P.muted << "." << ansi::reset << "\n";
             if (stats.tools)  // des outils ont déjà tourné : on précise que rien n'est perdu
-                std::cout << "  " << P.muted << "Progress is kept (" << plural(stats.tools, "tool use")
+                out() << "  " << P.muted << "Progress is kept (" << plural(stats.tools, "tool use")
                           << "): " << ansi::bold << "/retry" << ansi::reset << P.muted
                           << " continues from where the agent stopped." << ansi::reset << "\n";
             return;
@@ -301,37 +322,37 @@ void runAgent() {
         if (lv.inBlock()) lv.endBlock();
         lv.stopStatus();
 
-        if (out.cancelled) {
-            std::cout << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
-            g.history.push_back({"assistant", out.text + "\n[interrupted by the user]"});
+        if (res.cancelled) {
+            out() << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
+            g.history.push_back({"assistant", res.text + "\n[interrupted by the user]"});
             return;
         }
 
-        Message reply{"assistant", out.text};
-        reply.toolCalls = out.toolCalls;
+        Message reply{"assistant", res.text};
+        reply.toolCalls = res.toolCalls;
         if (p->protocol == Protocol::Anthropic) {  // la réflexion signée doit être renvoyée avec les outils
-            reply.thinking = out.reasoning;
-            reply.thinkingSignature = out.reasoningSignature;
+            reply.thinking = res.reasoning;
+            reply.thinkingSignature = res.reasoningSignature;
         }
         g.history.push_back(reply);
         const size_t used = gotUsage ? reportedTokens : estimatedChars / 4;
         stats.tokens += used;
-        stats.tools += out.toolCalls.size();
+        stats.tools += res.toolCalls.size();
         g.usage.requests++;
         g.usage.outputTokens += used;
-        g.usage.toolCalls += out.toolCalls.size();
+        g.usage.toolCalls += res.toolCalls.size();
 
-        if (out.toolCalls.empty()) break;  // réponse finale (déjà affichée en Markdown pendant le flux)
+        if (res.toolCalls.empty()) break;  // réponse finale (déjà affichée en Markdown pendant le flux)
 
         // Exécution des outils. Chaque appel reçoit un résultat, même après une interruption.
         bool interrupted = false;
-        for (const auto& tc : out.toolCalls) {
+        for (const auto& tc : res.toolCalls) {
             std::string result = interrupted ? "Not executed: interrupted by the user." : executeAgentTool(tc);
             g.history.push_back(Message::toolResult(truncate(result, kMaxResultChars), tc.id, tc.name));
             if (!interrupted && LiveView::get().interrupted()) interrupted = true;
         }
         if (interrupted) {
-            std::cout << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
+            out() << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
             break;
         }
 
@@ -361,9 +382,9 @@ bool handleAgentCommand(const std::string& line) {
     if (cmd == "/retry") {
         if (turnUnfinished()) {  // le dernier tour s'est arrêté sur une erreur : on le reprend
             if (g.history.back().role == "user")
-                std::cout << P.muted << "> " << truncate(g.history.back().text, 300) << ansi::reset << "\n";
+                out() << P.muted << "> " << truncate(g.history.back().text, 300) << ansi::reset << "\n";
             else
-                std::cout << P.muted << "Resuming where the agent stopped…" << ansi::reset << "\n";
+                out() << P.muted << "Resuming where the agent stopped…" << ansi::reset << "\n";
             runAgent();
             return true;
         }
@@ -371,7 +392,7 @@ bool handleAgentCommand(const std::string& line) {
             if (g.history[i].role != "user") continue;
             const std::string text = g.history[i].text;
             g.history.erase(g.history.begin() + (long)i, g.history.end());
-            std::cout << P.muted << "> " << truncate(text, 300) << ansi::reset << "\n";
+            out() << P.muted << "> " << truncate(text, 300) << ansi::reset << "\n";
             chat(text);
             return true;
         }
