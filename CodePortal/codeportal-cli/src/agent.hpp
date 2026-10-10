@@ -205,8 +205,16 @@ private:
     }
 };
 
-// Envoie une question et laisse l'agent travailler jusqu'à sa réponse finale.
-void chat(const std::string& userText) {
+// Un tour est inachevé quand l'historique se termine par la question ou par des résultats d'outils :
+// une erreur (réseau, quota, surcharge...) a arrêté l'agent avant sa réponse finale.
+bool turnUnfinished() {
+    return !g.history.empty() && (g.history.back().role == "user" || g.history.back().role == "tool");
+}
+
+// Fait travailler l'agent sur l'historique actuel jusqu'à sa réponse finale.
+// En cas d'erreur, le travail déjà fait (réponses, appels d'outils et résultats) est conservé :
+// /retry reprend là où l'agent s'est arrêté.
+void runAgent() {
     const Provider* p = activeProvider();
     if (!p) {
         printError("No API key configured. Run /key first.");
@@ -215,9 +223,7 @@ void chat(const std::string& userText) {
     const std::string key = keyFor(*p);
     const std::string model = modelFor(*p);
 
-    const size_t start = g.history.size();
     TurnStats stats;
-    g.history.push_back({"user", userText});
 
     for (int step = 0; step < kMaxAgentSteps; ++step) {
         LiveView& lv = LiveView::get();
@@ -270,8 +276,7 @@ void chat(const std::string& userText) {
             closeAnswer();
             if (lv.inBlock()) lv.endBlock();
             lv.stopStatus();
-            g.history.resize(start);  // on annule ce tour
-            printError(e.what());
+            printError(e.what());  // l'historique est gardé tel quel : /retry reprendra à cette étape
             const std::string msg = e.what();
             if (msg.find("HTTP 404") != std::string::npos || msg.find("no longer available") != std::string::npos ||
                 msg.find("not found") != std::string::npos || msg.find("does not exist") != std::string::npos)
@@ -282,6 +287,14 @@ void chat(const std::string& userText) {
                 std::cout << "  " << P.muted << model << " is overloaded right now. Try " << ansi::bold << "/retry"
                           << ansi::reset << P.muted << " in a moment, or " << ansi::bold << "/model" << ansi::reset
                           << P.muted << " to pick a lighter one." << ansi::reset << "\n";
+            else if (msg.find("HTTP 429") != std::string::npos || msg.find("RESOURCE_EXHAUSTED") != std::string::npos ||
+                     msg.find("rate limit") != std::string::npos || msg.find("quota") != std::string::npos)
+                std::cout << "  " << P.muted << "Rate limit reached. Wait a moment, then type " << ansi::bold
+                          << "/retry" << ansi::reset << P.muted << "." << ansi::reset << "\n";
+            if (stats.tools)  // des outils ont déjà tourné : on précise que rien n'est perdu
+                std::cout << "  " << P.muted << "Progress is kept (" << plural(stats.tools, "tool use")
+                          << "): " << ansi::bold << "/retry" << ansi::reset << P.muted
+                          << " continues from where the agent stopped." << ansi::reset << "\n";
             return;
         }
         closeAnswer();
@@ -329,10 +342,31 @@ void chat(const std::string& userText) {
     trimHistory();
 }
 
+// Envoie une question et laisse l'agent travailler jusqu'à sa réponse finale.
+void chat(const std::string& userText) {
+    if (!activeProvider()) {
+        printError("No API key configured. Run /key first.");
+        return;
+    }
+    // Question précédente restée sans réponse (erreur avant toute étape) : l'utilisateur passe à autre
+    // chose, on la retire pour ne pas envoyer deux messages utilisateur d'affilée.
+    if (!g.history.empty() && g.history.back().role == "user") g.history.pop_back();
+    g.history.push_back({"user", userText});
+    runAgent();
+}
+
 // Commandes qui relancent l'agent : /retry et /init. Retourne true si la commande a été traitée.
 bool handleAgentCommand(const std::string& line) {
     const std::string cmd = splitWords(line)[0];
     if (cmd == "/retry") {
+        if (turnUnfinished()) {  // le dernier tour s'est arrêté sur une erreur : on le reprend
+            if (g.history.back().role == "user")
+                std::cout << P.muted << "> " << truncate(g.history.back().text, 300) << ansi::reset << "\n";
+            else
+                std::cout << P.muted << "Resuming where the agent stopped…" << ansi::reset << "\n";
+            runAgent();
+            return true;
+        }
         for (size_t i = g.history.size(); i-- > 0;) {
             if (g.history[i].role != "user") continue;
             const std::string text = g.history[i].text;
