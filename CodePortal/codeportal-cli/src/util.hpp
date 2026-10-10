@@ -1,6 +1,12 @@
 // util.hpp : styles, thèmes clair/sombre, helpers texte UTF-8, helpers console, spinner.
 #pragma once
 
+#ifndef UNICODE  // exigé par FTXUI (tui.hpp)
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -52,6 +58,17 @@ struct Palette {
 
 inline Palette P;
 
+// Sortie du programme. Avant l'interface plein écran : la console. Ensuite : le journal à l'écran
+// (tui.hpp redirige ce flux), car std::cout est réservé au dessin de FTXUI.
+inline std::ostream& out() {
+    static std::ostream os(std::cout.rdbuf());
+    return os;
+}
+
+// Taille de la zone de texte de l'interface plein écran (0 tant qu'elle n'est pas lancée).
+inline std::atomic<int> g_tuiCols{0};
+inline std::atomic<int> g_tuiRows{0};
+
 inline void applyTheme(const std::string& name) {
     if (name == "light") {
         P = {"\x1b[38;2;196;92;58m",   "\x1b[38;2;30;30;30m",    "\x1b[38;2;112;112;112m",
@@ -71,6 +88,7 @@ inline void applyTheme(const std::string& name) {
 }
 
 size_t consoleHeight() {
+    if (g_tuiRows > 0) return (size_t)g_tuiRows;
     CONSOLE_SCREEN_BUFFER_INFO info{};
     if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info))
         return (size_t)(info.srWindow.Bottom - info.srWindow.Top + 1);
@@ -221,6 +239,7 @@ std::vector<std::string> wrapWords(const std::string& text, size_t width) {
 // Console
 // ---------------------------------------------------------------------------
 size_t consoleWidth() {
+    if (g_tuiCols > 0) return (size_t)g_tuiCols;
     CONSOLE_SCREEN_BUFFER_INFO info{};
     if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info))
         return (size_t)(info.srWindow.Right - info.srWindow.Left + 1);
@@ -235,22 +254,22 @@ std::string currentDir() {
     return toUtf8(buf);
 }
 
-// Exécute f en capturant tout ce qui serait écrit sur std::cout.
+// Exécute f en capturant tout ce qui serait écrit sur out().
 template <class F>
 std::string captureOutput(F&& f) {
     std::ostringstream ss;
-    std::streambuf* old = std::cout.rdbuf(ss.rdbuf());
+    std::streambuf* old = out().rdbuf(ss.rdbuf());
     try {
         f();
     } catch (...) {
-        std::cout.rdbuf(old);
+        out().rdbuf(old);
         throw;
     }
-    std::cout.rdbuf(old);
+    out().rdbuf(old);
     return ss.str();
 }
 
-// Saisie masquée (clés API) : chaque caractère est remplacé par *.
+// Saisie masquée (clés API) dans la console, avant le lancement de l'interface plein écran.
 std::string readMasked(const std::string& label) {
     std::wstring buf;
     std::cout << label << std::flush;

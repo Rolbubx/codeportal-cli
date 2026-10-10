@@ -13,8 +13,10 @@
 
 #include "live.hpp"
 #include "providers.hpp"
+#include "safety.hpp"
 #include "state.hpp"
 #include "tools.hpp"
+#include "tui.hpp"
 #include "ui.hpp"
 #include "util.hpp"
 
@@ -37,7 +39,7 @@ void chooseModel(const Provider& p) {
     }
     const std::string current = modelFor(p);
     if (ids.empty()) {
-        std::cout << "  " << P.muted << "Could not list the models" << (err.empty() ? "" : " (" + err + ")")
+        out() << "  " << P.muted << "Could not list the models" << (err.empty() ? "" : " (" + err + ")")
                   << "; keeping " << current << ". Change it with /model <name>." << ansi::reset << "\n";
         return;
     }
@@ -45,9 +47,9 @@ void chooseModel(const Provider& p) {
     const std::string chosen = pickFromList("Choose a " + p.label + " model", ids, current);
     if (chosen.empty() || chosen == current) {
         const bool known = std::find(ids.begin(), ids.end(), current) != ids.end();
-        if (known) std::cout << "  " << P.muted << "Model: " << current << ansi::reset << "\n";
+        if (known) out() << "  " << P.muted << "Model: " << current << ansi::reset << "\n";
         else
-            std::cout << "  " << P.num << "⚠ " << ansi::reset << P.muted << current << " is not in " << p.label
+            out() << "  " << P.num << "▲ " << ansi::reset << P.muted << current << " is not in " << p.label
                       << "'s list and may not work. Run /model to choose another one." << ansi::reset << "\n";
         return;
     }
@@ -100,8 +102,8 @@ bool addKeyAuto(const std::string& key) {
 
 void cmdKey(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::string key = readMasked("API key (provider detected automatically): ");
-        if (key.empty()) std::cout << "Cancelled.\n";
+        std::string key = tui::masked("API key (the provider is detected automatically)");
+        if (key.empty()) out() << "Cancelled.\n";
         else addKeyAuto(key);
         return;
     }
@@ -110,9 +112,9 @@ void cmdKey(const std::vector<std::string>& args) {
         addKeyAuto(args[1]);
         return;
     }
-    std::string key = args.size() >= 3 ? args[2] : readMasked(p->label + " API key: ");
+    std::string key = args.size() >= 3 ? args[2] : tui::masked(p->label + " API key");
     if (key.empty()) {
-        std::cout << "Cancelled.\n";
+        out() << "Cancelled.\n";
         return;
     }
     verifyAndStore(*p, key);
@@ -194,14 +196,14 @@ void cmdModels() {
         return;
     }
     std::string current = modelFor(*p);
-    std::cout << "\n" << p->label << " models (" << ids.size() << "):\n";
+    out() << "\n" << p->label << " models (" << ids.size() << "):\n";
     for (const auto& id : ids)
-        std::cout << (id == current ? P.accent : "") << (id == current ? "● " : "  ") << ansi::reset << id << "\n";
+        out() << (id == current ? P.accent : "") << (id == current ? "● " : "  ") << ansi::reset << id << "\n";
 }
 
 void cmdAuto(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cout << "Auto-run: " << (g.autoRun ? "on" : "off") << "\n";
+        out() << "Auto-run: " << (g.autoRun ? "on" : "off") << "\n";
         return;
     }
     if (args[1] == "on") g.autoRun = true;
@@ -215,7 +217,7 @@ void cmdAuto(const std::vector<std::string>& args) {
 
 void cmdTheme(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cout << "Theme: " << g.theme << "  (use /theme dark or /theme light)\n";
+        out() << "Theme: " << g.theme << "  (use /theme dark or /theme light)\n";
         return;
     }
     if (args[1] != "dark" && args[1] != "light") {
@@ -225,14 +227,14 @@ void cmdTheme(const std::vector<std::string>& args) {
     g.theme = args[1];
     applyTheme(g.theme);
     saveConfig();
-    std::cout << "\x1b[2J\x1b[H";
+    out() << "\x1b[2J\x1b[H";
     printBanner();
     printOk("Theme set to " + g.theme + ".");
 }
 
 void cmdCd(const std::string& rest) {
     if (rest.empty()) {
-        std::cout << g.cwd << "\n";
+        out() << g.cwd << "\n";
         return;
     }
     std::error_code ec;
@@ -266,7 +268,7 @@ void cmdExport(const std::string& rest) {
 void cmdHistory() {
     size_t user = 0, assistant = 0;
     for (const auto& m : g.history) (m.role == "user" ? user : assistant)++;
-    std::cout << plural(g.history.size(), "message") << " (" << user << " from you, " << assistant
+    out() << plural(g.history.size(), "message") << " (" << user << " from you, " << assistant
               << " from the assistant)\n";
 }
 
@@ -286,9 +288,9 @@ void cmdTools() {
         {"!create_dir('path')", "create a directory (and missing parents)"},
         {"!<command>", "run a Windows cmd command (asks for confirmation unless /auto on)"},
     };
-    std::cout << "\n";
+    out() << "\n";
     for (const auto& t : tools)
-        std::cout << "  " << P.accent << t.sig << ansi::reset << std::string(std::max<int>(2, 24 - (int)displayLength(t.sig)), ' ')
+        out() << "  " << P.accent << t.sig << ansi::reset << std::string(std::max<int>(2, 24 - (int)displayLength(t.sig)), ' ')
                   << P.muted << t.desc << ansi::reset << "\n";
 }
 
@@ -302,7 +304,7 @@ std::string runShell(const std::string& cmd, bool fromAgent, int* exitCode = nul
     bool stopped = false;
     std::function<bool()> cancel;
     if (fromAgent) cancel = [] { return LiveView::get().interrupted(); };  // Échap pendant l'exécution
-    std::string out = runProcess(cmd, timeoutSec, cancel, &code, &stopped);
+    std::string out = runProcess(cmd, timeoutSec, cancel, &code, &stopped, fromAgent);
     if (exitCode) *exitCode = stopped ? -1 : code;
     if (!stopped) out += "(exit code " + std::to_string(code) + ")\n";
     return out;
@@ -311,7 +313,7 @@ std::string runShell(const std::string& cmd, bool fromAgent, int* exitCode = nul
 // ---------------------------------------------------------------------------
 // Session, projet et diagnostic
 // ---------------------------------------------------------------------------
-constexpr const char* kVersion = "1.1.0";
+constexpr const char* kVersion = "1.2.2";
 
 std::string portalPath() { return g.cwd + "\\PORTAL.md"; }
 
@@ -324,14 +326,14 @@ std::string formatDuration(double secs) {
 
 void cmdUndo() {
     if (g_undo.empty()) {
-        std::cout << "Nothing to undo.\n";
+        out() << "Nothing to undo.\n";
         return;
     }
     bool ok = false;
     const std::string msg = undoLast(&ok);
     if (ok) printOk(msg);
     else printError(msg);
-    if (!g_undo.empty()) std::cout << "  " << P.muted << plural(g_undo.size(), "change") << " left to undo" << ansi::reset << "\n";
+    if (!g_undo.empty()) out() << "  " << P.muted << plural(g_undo.size(), "change") << " left to undo" << ansi::reset << "\n";
 }
 
 bool copyToClipboard(const std::string& text) {
@@ -370,10 +372,10 @@ void cmdCopy() {
 void cmdUsage() {
     const double session = std::chrono::duration<double>(std::chrono::steady_clock::now() - g.started).count();
     auto line = [](const char* k, const std::string& v) {
-        std::cout << "  " << P.muted << k << ansi::reset << std::string(std::max<int>(2, 18 - (int)displayLength(k)), ' ')
+        out() << "  " << P.muted << k << ansi::reset << std::string(std::max<int>(2, 18 - (int)displayLength(k)), ' ')
                   << v << "\n";
     };
-    std::cout << "\n";
+    out() << "\n";
     line("Session", formatDuration(session));
     line("Agent working", formatDuration(g.usage.agentSeconds));
     line("Requests", std::to_string(g.usage.requests));
@@ -444,7 +446,7 @@ std::vector<Message> messagesFromJson(const JVal& arr) {
 
 void cmdSave(const std::string& rest) {
     if (g.history.empty()) {
-        std::cout << "Nothing to save yet.\n";
+        out() << "Nothing to save yet.\n";
         return;
     }
     const std::string name = rest.empty() ? defaultSessionName() : sanitizeName(rest);
@@ -474,16 +476,16 @@ void cmdSessions() {
         items.push_back({e.path().stem().u8string(), fileDate(e.path().u8string())});
     }
     if (items.empty()) {
-        std::cout << "No saved sessions. Use /save [name].\n";
+        out() << "No saved sessions. Use /save [name].\n";
         return;
     }
     std::sort(items.begin(), items.end(), [](const Item& a, const Item& b) { return a.date > b.date; });
-    std::cout << "\n";
+    out() << "\n";
     for (const auto& it : items)
-        std::cout << "  " << P.accent << it.name << ansi::reset
+        out() << "  " << P.accent << it.name << ansi::reset
                   << std::string(std::max<int>(2, 28 - (int)displayLength(it.name)), ' ') << P.muted << it.date
                   << ansi::reset << "\n";
-    std::cout << "\n  " << P.muted << "Restore one with /load <name>" << ansi::reset << "\n";
+    out() << "\n  " << P.muted << "Restore one with /load <name>" << ansi::reset << "\n";
 }
 
 void cmdLoad(const std::string& rest) {
@@ -508,14 +510,14 @@ void cmdLoad(const std::string& rest) {
     printOk("Loaded session " + name + " (" + plural(g.history.size(), "message") + ").");
     for (auto it = g.history.rbegin(); it != g.history.rend(); ++it)
         if (it->role == "user") {
-            std::cout << "  " << P.muted << "last request: " << truncate(it->text, 100) << ansi::reset << "\n";
+            out() << "  " << P.muted << "last request: " << truncate(it->text, 100) << ansi::reset << "\n";
             break;
         }
 }
 
 void cmdCompact() {
     if (g.history.size() < 2) {
-        std::cout << "Nothing to compact yet.\n";
+        out() << "Nothing to compact yet.\n";
         return;
     }
     std::string err, summary;
@@ -537,18 +539,18 @@ void cmdCompact() {
     g.history.push_back({"user", "Summary of our conversation so far:\n" + summary});
     g.history.push_back({"assistant", "Understood. I will continue from this summary."});
     printOk("Compacted " + plural(before, "message") + " into a summary:");
-    for (const auto& l : md::render(summary, frameWidth() - 4)) std::cout << "  " << l << "\n";
+    for (const auto& l : md::render(summary, frameWidth() - 4)) out() << "  " << l << "\n";
 }
 
 void cmdDoctor() {
     auto check = [](int level, const std::string& name, const std::string& detail) {
-        const char* icon = level == 0 ? "✔" : level == 1 ? "⚠" : "✖";
+        const char* icon = level == 0 ? "✓" : level == 1 ? "▲" : "✗";
         const char* color = level == 0 ? P.ok : level == 1 ? P.num : P.err;
-        std::cout << "  " << color << icon << ansi::reset << " " << name
+        out() << "  " << color << icon << ansi::reset << " " << name
                   << std::string(std::max<int>(2, 26 - (int)displayLength(name)), ' ') << P.muted << detail
                   << ansi::reset << "\n";
     };
-    std::cout << "\n";
+    out() << "\n";
     DWORD mode = 0;
     const bool vt = GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &mode) && (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     check(vt ? 0 : 2, "Terminal colors", vt ? "VT mode enabled" : "VT mode disabled: colors and animations will not work");
@@ -582,7 +584,7 @@ void cmdDoctor() {
 }
 
 void cmdVersion() {
-    std::cout << P.accent << "✻ " << ansi::reset << ansi::bold << "CodePortal " << kVersion << ansi::reset << P.muted
+    out() << P.accent << "✻ " << ansi::reset << ansi::bold << "CodePortal " << kVersion << ansi::reset << P.muted
               << "  (built " << __DATE__ << " · " << providers().size() << " providers · " << toolSpecs().size()
               << " agent tools)" << ansi::reset << "\n";
 }
@@ -604,8 +606,8 @@ void printMarkdownFile(const std::string& path, const std::string& title) {
         printError("Cannot read " + path);
         return;
     }
-    std::cout << "\n  " << P.muted << title << " · " << plural(splitLines(text).size(), "line") << ansi::reset << "\n\n";
-    for (const auto& l : md::render(text, frameWidth() - 4)) std::cout << "  " << l << "\n";
+    out() << "\n  " << P.muted << title << " · " << plural(splitLines(text).size(), "line") << ansi::reset << "\n\n";
+    for (const auto& l : md::render(text, frameWidth() - 4)) out() << "  " << l << "\n";
 }
 
 void cmdMd(const std::string& rest) {
@@ -619,11 +621,43 @@ void cmdMd(const std::string& rest) {
 void cmdMemory() {
     std::error_code ec;
     if (!std::filesystem::exists(std::filesystem::path(toWide(portalPath())), ec)) {
-        std::cout << P.muted << "No PORTAL.md in this folder. Run /init to create one: the agent reads it at every request."
+        out() << P.muted << "No PORTAL.md in this folder. Run /init to create one: the agent reads it at every request."
                   << ansi::reset << "\n";
         return;
     }
     printMarkdownFile(portalPath(), "PORTAL.md (project instructions, sent to the agent)");
+}
+
+void cmdSafety() {
+    out() << "\n " << ansi::bold << P.text << "Safeguards for the agent's tools" << ansi::reset << "\n\n";
+    for (const auto& [k, v] : safety::rules()) {
+        auto lines = wrapWords(v, frameWidth() > 30 ? frameWidth() - 26 : 40);
+        for (size_t i = 0; i < lines.size(); ++i)
+            out() << "  " << (i == 0 ? std::string(P.accent) + "• " + ansi::reset + ansi::bold + k + ansi::reset +
+                                           std::string((size_t)std::max<int>(2, 21 - (int)displayLength(k)), ' ')
+                                     : std::string(23, ' '))
+                  << P.muted << lines[i] << ansi::reset << "\n";
+    }
+    if (!safety::sessionAllowed().empty()) {
+        out() << "\n  " << P.muted << "Allowed for this session:" << ansi::reset << "\n";
+        for (const auto& d : safety::sessionAllowed()) out() << "    " << d << "\n";
+    }
+}
+
+void printPlan(const std::vector<tui::PlanStep>& plan);
+
+void cmdPlan() {
+    std::vector<tui::PlanStep> plan;
+    {
+        std::lock_guard<std::mutex> lk(tui::S().mu);
+        plan = tui::S().plan;
+    }
+    if (plan.empty()) {
+        out() << P.muted << "No plan yet: the agent shows one for tasks with several steps." << ansi::reset << "\n";
+        return;
+    }
+    out() << "\n";
+    printPlan(plan);
 }
 
 // Dispatch des commandes slash (utilisateur). Retourne false pour quitter.
@@ -645,21 +679,22 @@ bool handleCommand(const std::string& line) {
     else if (cmd == "/tools") cmdTools();
     else if (cmd == "/clear") {
         g.history.clear();
-        std::cout << "Conversation cleared.\n";
+        tui::setPlan({});
+        out() << "Conversation cleared.\n";
     } else if (cmd == "/history") cmdHistory();
     else if (cmd == "/export") cmdExport(rest);
-    else if (cmd == "/cwd") std::cout << g.cwd << "\n";
+    else if (cmd == "/cwd") out() << g.cwd << "\n";
     else if (cmd == "/cd") cmdCd(rest);
     else if (cmd == "/ls") {
         ToolResult r = runTool(Call{}, "list_dir", {rest}, false);
         if (!r.ok) printError(r.summary);
-        else std::cout << r.output;
+        else out() << r.output;
     } else if (cmd == "/read") {
         ToolResult r = runTool(Call{}, "read_file", {rest}, false);
         if (!r.ok) printError(r.summary);
-        else std::cout << r.summary << "\n" << r.output;
+        else out() << r.summary << "\n" << r.output;
     } else if (cmd == "/context") {
-        std::cout << contextText();
+        out() << contextText();
     } else if (cmd == "/undo") cmdUndo();
     else if (cmd == "/copy") cmdCopy();
     else if (cmd == "/usage" || cmd == "/cost") cmdUsage();
@@ -672,6 +707,8 @@ bool handleCommand(const std::string& line) {
     else if (cmd == "/open") cmdOpen(rest);
     else if (cmd == "/md") cmdMd(rest);
     else if (cmd == "/memory") cmdMemory();
+    else if (cmd == "/safety") cmdSafety();
+    else if (cmd == "/plan") cmdPlan();
     else printError("Unknown command: " + cmd + " (type /help)");
     return true;
 }
@@ -690,7 +727,7 @@ std::string toolTitle(const std::string& name, const std::vector<std::string>& a
         {"context", "Context"},    {"get_context", "Context"}, {"read_file", "Read"},
         {"list_dir", "List"},      {"create_file", "Write"},   {"write_file", "Write"},
         {"edit_file", "Update"},   {"delete_file", "Delete"},  {"create_dir", "Mkdir"},
-        {"run_command", "Bash"}};
+        {"run_command", "Bash"},   {"ask_user", "Question"},  {"update_plan", "Plan"}};
     std::string label = name;
     for (const auto& [n, t] : titles)
         if (n == name) label = t;
@@ -698,34 +735,56 @@ std::string toolTitle(const std::string& name, const std::vector<std::string>& a
 }
 
 // Affiche le résultat d'une commande : résumé sous ⎿ (rouge si erreur), diff coloré, sortie si demandée.
+// Beaucoup de lignes à montrer : on en affiche une première tranche, puis on demande (touche) pour la suite.
+// Retourne true si l'utilisateur veut voir le reste. Hors interface (pas de TUI) : tout est affiché.
+bool revealRest(size_t remaining, const std::string& what) {
+    if (!tui::active()) return true;
+    return tui::choose("Show the " + plural(remaining, what + " line") + " not shown?", "", {"Show", "Collapse"}) == "Show";
+}
+
 void printOutcome(const ToolResult& r, bool full) {
-    if (!r.summary.empty()) std::cout << (r.ok ? P.muted : P.err) << "  ⎿  " << r.summary << ansi::reset << "\n";
+    if (!r.summary.empty()) out() << (r.ok ? P.muted : P.err) << "  ⎿  " << r.summary << ansi::reset << "\n";
     // Diff façon Claude Code : numéro de ligne, signe, fond rouge/vert sur toute la largeur.
-    const size_t maxDiff = 40;
     const size_t width = frameWidth() - 6;
-    for (size_t i = 0; i < r.diff.size() && i < maxDiff; ++i) {
-        const DiffLine& d = r.diff[i];
+    auto printDiff = [&](const DiffLine& d) {
         std::string num = std::to_string(d.lineNo);
         if (num.size() < 4) num = std::string(4 - num.size(), ' ') + num;
         std::string body = num + " " + (d.kind == ' ' ? std::string(" ") : std::string(1, d.kind)) + " " + d.text;
         if (displayLength(body) > width) body = utf8Prefix(body, width - 1) + "…";
         const size_t pad = width - std::min(width, displayLength(body));
-        if (d.kind == ' ') std::cout << "      " << P.muted << body << ansi::reset << "\n";
+        if (d.kind == ' ') out() << "      " << P.muted << body << ansi::reset << "\n";
         else
-            std::cout << "      " << (d.kind == '+' ? P.addBg : P.delBg) << (d.kind == '+' ? P.add : P.del) << body
-                      << std::string(pad, ' ') << ansi::reset << "\n";
+            out() << "      " << (d.kind == '+' ? P.addBg : P.delBg) << (d.kind == '+' ? P.add : P.del) << body
+                  << std::string(pad, ' ') << ansi::reset << "\n";
+    };
+    const size_t firstChunk = 30;  // au-delà, on demande une touche pour voir la suite
+    size_t i = 0;
+    for (; i < r.diff.size() && i < firstChunk; ++i) printDiff(r.diff[i]);
+    if (i < r.diff.size()) {
+        if (revealRest(r.diff.size() - i, "changed")) {
+            out() << std::flush;
+            for (; i < r.diff.size(); ++i) printDiff(r.diff[i]);
+        } else {
+            out() << P.muted << "      … +" << r.diff.size() - i << " more lines (collapsed)" << ansi::reset << "\n";
+        }
     }
-    if (r.diff.size() > maxDiff)
-        std::cout << P.muted << "      … +" << r.diff.size() - maxDiff << " lines" << ansi::reset << "\n";
 
     if ((full || r.alwaysShow) && !r.output.empty()) {
         auto lines = splitLines(r.output);
         while (!lines.empty() && trim(lines.back()).empty()) lines.pop_back();
-        const size_t maxLines = 25;
-        for (size_t i = 0; i < lines.size() && i < maxLines; ++i)
-            std::cout << P.muted << (i == 0 && r.summary.empty() ? "  ⎿  " : "     ") << lines[i] << ansi::reset << "\n";
-        if (lines.size() > maxLines)
-            std::cout << P.muted << "     … +" << lines.size() - maxLines << " more lines" << ansi::reset << "\n";
+        auto printLine = [&](size_t k) {
+            out() << P.muted << (k == 0 && r.summary.empty() ? "  ⎿  " : "     ") << lines[k] << ansi::reset << "\n";
+        };
+        size_t k = 0;
+        for (; k < lines.size() && k < firstChunk; ++k) printLine(k);
+        if (k < lines.size()) {
+            if (revealRest(lines.size() - k, "output")) {
+                out() << std::flush;
+                for (; k < lines.size(); ++k) printLine(k);
+            } else {
+                out() << P.muted << "     … +" << lines.size() - k << " more lines (collapsed)" << ansi::reset << "\n";
+            }
+        }
     }
 }
 
@@ -788,6 +847,66 @@ std::string executeCall(const Call& call, bool fromAgent) {
     return r.summary;
 }
 
+// Liste de chaînes d'un argument JSON (tableau, ou texte d'une ligne par élément).
+std::vector<std::string> stringList(const JVal* v) {
+    std::vector<std::string> out;
+    if (!v) return out;
+    if (v->type == JVal::ARR) {
+        for (const JVal& it : v->arr)
+            if (!trim(it.str).empty()) out.push_back(trim(it.str));
+    } else if (v->type == JVal::STR) {
+        for (const auto& l : splitLines(v->str))
+            if (!trim(l).empty()) out.push_back(trim(l));
+    }
+    return out;
+}
+
+// Plan de l'agent (update_plan) : « [x] fait », « [>] en cours », « [ ] à faire ».
+std::vector<tui::PlanStep> parsePlan(const std::vector<std::string>& steps) {
+    std::vector<tui::PlanStep> plan;
+    for (std::string st : steps) {
+        tui::PlanStep p;
+        const size_t close = st.find(']');
+        if (!st.empty() && st[0] == '[' && close != std::string::npos && close <= 4) {  // « [x] », « [ >] »...
+            const std::string m = trim(st.substr(1, close - 1));
+            if (m == "x" || m == "X" || m == "v" || m == "✓" || m == "✓") p.state = 'x';
+            else if (m == ">" || m == "~" || m == "-" || m == "*" || m == "…") p.state = '>';
+            st = trim(st.substr(close + 1));
+        }
+        p.text = st;
+        plan.push_back(p);
+    }
+    return plan;
+}
+
+void printPlan(const std::vector<tui::PlanStep>& plan) {
+    size_t done = 0;
+    for (const auto& st : plan) done += st.state == 'x';
+    out() << P.muted << "  ⎿  " << done << "/" << plan.size() << " done" << ansi::reset << "\n";
+    for (const auto& st : plan) {
+        if (st.state == 'x') out() << "     " << P.ok << "☒ " << ansi::reset << P.muted << st.text << ansi::reset << "\n";
+        else if (st.state == '>') out() << "     " << P.accent << "◐ " << ansi::reset << ansi::bold << P.text << st.text << ansi::reset << "\n";
+        else out() << "     " << P.muted << "☐ " << ansi::reset << P.text << st.text << ansi::reset << "\n";
+    }
+    out() << std::flush;
+}
+
+// Garde-fou : demande à l'utilisateur quand l'action sort du cadre. Retourne "" si permis, sinon la raison du refus.
+std::string guard(const safety::Decision& d, const std::string& action, const std::string& folderToAllow) {
+    if (d.verdict == safety::Verdict::Allow) return "";
+    if (d.verdict == safety::Verdict::Deny) return "Blocked by CodePortal safeguards: " + d.reason + ".";
+    std::vector<std::string> options = {"Allow once"};
+    if (!folderToAllow.empty()) options.push_back("Allow in this folder for the session");
+    options.push_back("Deny");
+    const std::string choice = tui::choose("The agent wants to " + action, d.reason + (folderToAllow.empty() ? "" : "\nFolder: " + folderToAllow), options);
+    if (choice == "Allow once") return "";
+    if (choice == "Allow in this folder for the session") {
+        safety::sessionAllowed().push_back(safety::normalize(folderToAllow));
+        return "";
+    }
+    return "The user denied this action (" + d.reason + ").";
+}
+
 // Exécute un appel d'outil natif de l'assistant (arguments JSON). Retourne le résultat pour le modèle.
 // Puce grise + spinner pendant l'exécution (Échap pour arrêter), puis verte ou rouge.
 std::string executeAgentTool(const ToolCallRec& tc) {
@@ -800,8 +919,74 @@ std::string executeAgentTool(const ToolCallRec& tc) {
     };
     auto has = [&](const char* k) { return parsed && args.find(k) != nullptr; };
 
+    // Question à l'utilisateur : le tour de l'agent continue.
+    if (tc.name == "ask_user") {
+        const std::string question = trim(str("question"));
+        const std::vector<std::string> options = stringList(parsed ? args.find("options") : nullptr);
+        const bool wait = !(has("wait") && str("wait") == "false");
+        if (question.empty()) return "Error: ask_user needs a question.";
+        if (!wait) {
+            printToolCall("Question(" + question + ")", ToolState::Ok);
+            tui::askLater(question, options);
+            out() << P.muted << "  ⎿  shown to the user; you keep working" << ansi::reset << "\n";
+            return "The question is shown to the user. Keep working on what does not depend on it; the answer will "
+                   "arrive later as a message from the user.";
+        }
+        const std::string answer = tui::ask(question, options);
+        if (answer.empty()) {  // une réponse est réaffichée par l'interface ; une question ignorée, ici
+            out() << "\n" << P.accent << "? " << ansi::reset << P.muted << question << ansi::reset << "\n"
+                  << P.muted << "  ⎿  skipped" << ansi::reset << "\n";
+            return "The user skipped the question without answering. Make a sensible choice yourself and say which.";
+        }
+        return "The user answered: " + answer;
+    }
+
+    // Plan affiché avec une barre de progression.
+    if (tc.name == "update_plan") {
+        auto plan = parsePlan(stringList(parsed ? args.find("steps") : nullptr));
+        if (plan.empty()) return "Error: update_plan needs a non-empty steps list.";
+        tui::setPlan(plan);
+        printToolCall("Plan", ToolState::Ok);
+        printPlan(plan);
+        size_t done = 0;
+        for (const auto& st : plan) done += st.state == 'x';
+        return "Plan updated (" + std::to_string(done) + "/" + std::to_string(plan.size()) + " done).";
+    }
+
     const std::string command = str("command");
-    const std::string title = tc.name == "run_command" ? "Bash(" + command + ")" : toolTitle(tc.name, {str("path")});
+    const std::string path = str("path");
+    const std::string title = tc.name == "run_command" ? "Bash(" + command + ")" : toolTitle(tc.name, {path});
+
+    // Garde-fous, avant d'afficher l'appel (une confirmation peut être demandée).
+    std::string refusal;
+    if (parsed && tc.name == "run_command") {
+        refusal = guard(safety::checkCommand(command), "run a command:\n" + command, "");
+        // Lancer un script que l'agent vient d'écrire : on demande (il pourrait contourner les garde-fous).
+        if (refusal.empty())
+            for (const auto& s : safety::referencedScripts(command))
+                if (agentWrittenFiles().count(s)) {
+                    refusal = guard(safety::ask("it runs a script it just created, which can do anything a command can"),
+                                    "run a script it just wrote:\n" + command, "");
+                    break;
+                }
+    } else if (parsed && isToolName(tc.name) && tc.name != "get_context" && tc.name != "context") {
+        const bool reads = tc.name == "read_file" || tc.name == "list_dir";
+        const std::string target = path.empty() ? "." : expandPath(path);
+        std::string folder = safety::normalize(target);
+        if (!(tc.name == "create_dir" || (tc.name == "list_dir"))) {
+            const size_t slash = folder.find_last_of('\\');
+            if (slash != std::string::npos && slash > 2) folder = folder.substr(0, slash);
+        }
+        const std::string verb = tc.name == "delete_file" ? "delete " : tc.name == "create_dir" ? "create the folder " : "write to ";
+        refusal = guard(safety::checkPath(target, reads ? safety::Access::Read : safety::Access::Write),
+                        verb + target, reads ? "" : folder);
+    }
+    if (!refusal.empty()) {
+        printToolCall(title, ToolState::Error);
+        out() << P.err << "  ⎿  " << refusal << ansi::reset << "\n";
+        return refusal + " Do not try to work around it; if the action is really needed, explain why to the user.";
+    }
+
     printToolCall(title, ToolState::Pending);
 
     ToolResult r;
@@ -828,7 +1013,12 @@ std::string executeAgentTool(const ToolCallRec& tc) {
             c.hasOld = has("old_text");
             c.newText = str("new_text");
             c.hasNew = has("new_text");
-            r = runTool(c, tc.name, {str("path")}, true);
+            try {
+                if (has("start_line")) c.startLine = (size_t)std::max(1, std::stoi(str("start_line")));
+                if (has("max_lines")) c.maxLines = (size_t)std::clamp(std::stoi(str("max_lines")), 1, 1000);
+            } catch (...) {
+            }
+            r = runTool(c, tc.name, {path}, true);
         } else {
             r = failTool("Unknown tool: " + tc.name);
         }

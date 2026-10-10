@@ -20,7 +20,9 @@
 #include <vector>
 
 #include "providers.hpp"
+#include "safety.hpp"
 #include "state.hpp"
+#include "tui.hpp"
 #include "util.hpp"
 
 namespace fs = std::filesystem;
@@ -32,6 +34,8 @@ struct Call {
     std::string oldText;  // bloc <old>
     std::string newText;  // bloc <new>
     bool hasContent = false, hasOld = false, hasNew = false;
+    size_t startLine = 1;   // read_file : première ligne lue (1 = début)
+    size_t maxLines = 400;  // read_file : nombre de lignes au plus
 };
 
 struct DiffLine {
@@ -97,8 +101,32 @@ std::string decodeConsoleOutput(const std::string& raw) {
 // Lance une commande cmd.exe sans clavier (stdin = NUL : un programme interactif reçoit
 // immédiatement « fin d'entrée » au lieu de bloquer). Délai maximal et annulation possibles :
 // toute l'arborescence de processus est alors arrêtée via un Job Windows.
+// Environnement du processus courant sans les variables qui contiennent des clés d'API
+// (POOLSIDE_API_KEY, OPENAI_API_KEY...) : les commandes lancées par l'agent ne les voient pas.
+std::wstring environmentWithoutSecrets() {
+    std::wstring block;
+    wchar_t* env = GetEnvironmentStringsW();
+    if (!env) return block;
+    for (const wchar_t* p = env; *p; p += wcslen(p) + 1) {
+        std::wstring entry = p;
+        const size_t eq = entry.find(L'=', 1);
+        std::wstring name = entry.substr(0, eq);
+        for (auto& c : name) c = (wchar_t)towupper(c);
+        auto endsWith = [&](const wchar_t* suffix) {
+            const size_t n = wcslen(suffix);
+            return name.size() >= n && name.compare(name.size() - n, n, suffix) == 0;
+        };
+        if (endsWith(L"_API_KEY") || endsWith(L"_TOKEN") || endsWith(L"_SECRET") || name == L"GOOGLE_API_KEY") continue;
+        block += entry;
+        block.push_back(L'\0');
+    }
+    FreeEnvironmentStringsW(env);
+    block.push_back(L'\0');
+    return block;
+}
+
 std::string runProcess(const std::string& command, int timeoutSec, const std::function<bool()>& cancelled,
-                       int* exitCode, bool* stopped) {
+                       int* exitCode, bool* stopped, bool hideSecrets = false) {
     if (exitCode) *exitCode = -1;
     if (stopped) *stopped = false;
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
@@ -117,8 +145,10 @@ std::string runProcess(const std::string& command, int timeoutSec, const std::fu
     std::wstring cmdline = L"cmd.exe /d /s /c \"chcp 65001>nul & " + toWide(command) + L"\"";
 
     HANDLE job = CreateJobObjectW(nullptr, nullptr);
-    BOOL ok = CreateProcessW(nullptr, &cmdline[0], nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
-                             nullptr, nullptr, &si, &pi);
+    std::wstring env = hideSecrets ? environmentWithoutSecrets() : std::wstring();
+    BOOL ok = CreateProcessW(nullptr, &cmdline[0], nullptr, nullptr, TRUE,
+                             CREATE_NO_WINDOW | CREATE_SUSPENDED | (env.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT),
+                             env.empty() ? nullptr : &env[0], nullptr, &si, &pi);
     CloseHandle(writePipe);
     if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
     if (!ok) {
@@ -219,12 +249,8 @@ ToolResult failTool(const std::string& msg) {
     return r;
 }
 
-bool askYesNo(const std::string& question) {
-    std::cout << question << " [y/N] " << std::flush;
-    std::string answer;
-    std::getline(std::cin, answer);
-    answer = trim(answer);
-    return answer == "y" || answer == "Y" || answer == "o" || answer == "O";
+bool askYesNo(const std::string& question, const std::string& detail = "") {
+    return tui::choose(question, detail, {"Yes", "No"}) == "Yes";
 }
 
 bool readText(const fs::path& p, std::string& out) {
@@ -243,12 +269,14 @@ bool writeText(const fs::path& p, const std::string& content) {
     return (bool)out;
 }
 
-std::string numbered(const std::string& text, size_t maxLines) {
+std::string numbered(const std::string& text, size_t maxLines, size_t startLine = 1) {
     auto lines = splitLines(text);
     std::string out;
-    for (size_t i = 0; i < lines.size() && i < maxLines; ++i)
-        out += std::to_string(i + 1) + "\t" + lines[i] + "\n";
-    if (lines.size() > maxLines) out += "... " + plural(lines.size() - maxLines, "more line") + "\n";
+    const size_t first = std::max<size_t>(1, startLine) - 1;
+    size_t i = first;
+    for (; i < lines.size() && i < first + maxLines; ++i) out += std::to_string(i + 1) + "\t" + lines[i] + "\n";
+    if (i < lines.size())
+        out += "... " + plural(lines.size() - i, "more line") + " (read them with start_line=" + std::to_string(i + 1) + ")\n";
     return out;
 }
 
@@ -286,6 +314,12 @@ void buildDiff(ToolResult& r, const std::string& before, const std::string& afte
     for (size_t n = next; n < next + 2 && n <= afterLines.size(); ++n) r.diff.push_back({' ', n, afterLines[n - 1]});
 }
 
+// Toutes les lignes d'un fichier créé ou écrit, en lignes ajoutées (affichées comme un diff tout vert).
+void buildAddedDiff(ToolResult& r, const std::string& content) {
+    const auto lines = splitLines(content);
+    for (size_t i = 0; i < lines.size(); ++i) r.diff.push_back({'+', i + 1, lines[i]});
+}
+
 // ---------------------------------------------------------------------------
 // Annulation (/undo) : état d'un fichier sauvegardé juste avant chaque modification.
 // ---------------------------------------------------------------------------
@@ -297,6 +331,13 @@ struct Backup {
 };
 
 inline std::vector<Backup> g_undo;
+
+// Fichiers créés ou écrits par l'agent pendant la session (chemins normalisés, voir safety::normalize) :
+// exécuter l'un d'eux comme script demande confirmation.
+inline std::set<std::string>& agentWrittenFiles() {
+    static std::set<std::string> files;
+    return files;
+}
 
 std::string absolutePath(const fs::path& p) {
     std::error_code ec;
@@ -387,8 +428,12 @@ ToolResult runTool(const Call& c, const std::string& name, const std::vector<std
     if (name == "read_file") {
         std::string text;
         if (!readText(p, text)) return failTool("Cannot read " + path);
-        r.summary = "Read " + plural(splitLines(text).size(), "line");
-        r.output = numbered(text, 400);
+        const size_t total = splitLines(text).size();
+        r.output = numbered(text, c.maxLines, c.startLine);
+        r.summary = c.startLine > 1 || total > c.maxLines
+                        ? "Read lines " + std::to_string(std::min(c.startLine, total)) + "-" +
+                              std::to_string(std::min(total, c.startLine + c.maxLines - 1)) + " of " + std::to_string(total)
+                        : "Read " + plural(total, "line");
         return r;
     }
 
@@ -398,6 +443,8 @@ ToolResult runTool(const Call& c, const std::string& name, const std::vector<std
         std::string text = c.hasContent ? c.content : "";
         pushBackup(p);
         if (!writeText(p, text)) return failTool("Cannot create " + path);
+        if (fromAgent) agentWrittenFiles().insert(safety::normalize(path));
+        buildAddedDiff(r, text);
         r.summary = "Created " + path + " (" + plural(splitLines(text).size(), "line") + ")";
         return r;
     }
@@ -406,6 +453,8 @@ ToolResult runTool(const Call& c, const std::string& name, const std::vector<std
         if (!c.hasContent) return failTool("write_file needs a <content> block after the command.");
         pushBackup(p);
         if (!writeText(p, c.content)) return failTool("Cannot write " + path);
+        if (fromAgent) agentWrittenFiles().insert(safety::normalize(path));
+        buildAddedDiff(r, c.content);
         r.summary = "Wrote " + path + " (" + plural(splitLines(c.content).size(), "line") + ")";
         return r;
     }
