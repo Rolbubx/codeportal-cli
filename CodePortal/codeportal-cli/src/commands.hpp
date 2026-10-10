@@ -313,7 +313,7 @@ std::string runShell(const std::string& cmd, bool fromAgent, int* exitCode = nul
 // ---------------------------------------------------------------------------
 // Session, projet et diagnostic
 // ---------------------------------------------------------------------------
-constexpr const char* kVersion = "1.2.1";
+constexpr const char* kVersion = "1.2.2";
 
 std::string portalPath() { return g.cwd + "\\PORTAL.md"; }
 
