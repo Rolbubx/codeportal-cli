@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "providers.hpp"
+#include "safety.hpp"
 #include "state.hpp"
 #include "tui.hpp"
 #include "util.hpp"
@@ -313,6 +314,12 @@ void buildDiff(ToolResult& r, const std::string& before, const std::string& afte
     for (size_t n = next; n < next + 2 && n <= afterLines.size(); ++n) r.diff.push_back({' ', n, afterLines[n - 1]});
 }
 
+// Toutes les lignes d'un fichier créé ou écrit, en lignes ajoutées (affichées comme un diff tout vert).
+void buildAddedDiff(ToolResult& r, const std::string& content) {
+    const auto lines = splitLines(content);
+    for (size_t i = 0; i < lines.size(); ++i) r.diff.push_back({'+', i + 1, lines[i]});
+}
+
 // ---------------------------------------------------------------------------
 // Annulation (/undo) : état d'un fichier sauvegardé juste avant chaque modification.
 // ---------------------------------------------------------------------------
@@ -324,6 +331,13 @@ struct Backup {
 };
 
 inline std::vector<Backup> g_undo;
+
+// Fichiers créés ou écrits par l'agent pendant la session (chemins normalisés, voir safety::normalize) :
+// exécuter l'un d'eux comme script demande confirmation.
+inline std::set<std::string>& agentWrittenFiles() {
+    static std::set<std::string> files;
+    return files;
+}
 
 std::string absolutePath(const fs::path& p) {
     std::error_code ec;
@@ -429,6 +443,8 @@ ToolResult runTool(const Call& c, const std::string& name, const std::vector<std
         std::string text = c.hasContent ? c.content : "";
         pushBackup(p);
         if (!writeText(p, text)) return failTool("Cannot create " + path);
+        if (fromAgent) agentWrittenFiles().insert(safety::normalize(path));
+        buildAddedDiff(r, text);
         r.summary = "Created " + path + " (" + plural(splitLines(text).size(), "line") + ")";
         return r;
     }
@@ -437,6 +453,8 @@ ToolResult runTool(const Call& c, const std::string& name, const std::vector<std
         if (!c.hasContent) return failTool("write_file needs a <content> block after the command.");
         pushBackup(p);
         if (!writeText(p, c.content)) return failTool("Cannot write " + path);
+        if (fromAgent) agentWrittenFiles().insert(safety::normalize(path));
+        buildAddedDiff(r, c.content);
         r.summary = "Wrote " + path + " (" + plural(splitLines(c.content).size(), "line") + ")";
         return r;
     }

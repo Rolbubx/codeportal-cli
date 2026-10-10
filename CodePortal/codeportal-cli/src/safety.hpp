@@ -185,16 +185,36 @@ inline bool hasWord(const std::string& s, const std::string& w) {
     return false;
 }
 
-// Remplace %VAR% et $env:VAR par leur valeur pour repérer les chemins protégés.
-inline std::string expandForCheck(const std::string& cmd) {
+// Remplace %VAR%, %VAR:~a,b% (sous-chaîne) et $env:VAR par leur valeur, pour repérer les chemins protégés.
+inline std::string expandVars(const std::string& cmd) {
     std::string out;
     for (size_t i = 0; i < cmd.size(); ++i) {
         if (cmd[i] == '%') {
             const size_t j = cmd.find('%', i + 1);
             if (j != std::string::npos && j > i + 1) {
-                const char* v = std::getenv(cmd.substr(i + 1, j - i - 1).c_str());
+                std::string inner = cmd.substr(i + 1, j - i - 1);  // VAR, ou VAR:~off,len
+                std::string name = inner;
+                long off = -1, len = -1;
+                const size_t sub = inner.find(":~");
+                if (sub != std::string::npos) {
+                    name = inner.substr(0, sub);
+                    const std::string rest = inner.substr(sub + 2);
+                    const size_t comma = rest.find(',');
+                    try {
+                        off = std::stol(rest.substr(0, comma));
+                        if (comma != std::string::npos) len = std::stol(rest.substr(comma + 1));
+                    } catch (...) {
+                        off = -1;
+                    }
+                }
+                const char* v = std::getenv(name.c_str());
                 if (v) {
-                    out += v;
+                    std::string val = v;
+                    if (off >= 0) {  // %VAR:~off,len%
+                        if (off > (long)val.size()) off = (long)val.size();
+                        val = len >= 0 ? val.substr(off, len) : val.substr(off);
+                    }
+                    out += val;
                     i = j;
                     continue;
                 }
@@ -215,10 +235,79 @@ inline std::string expandForCheck(const std::string& cmd) {
     return out;
 }
 
+// Ramène une commande à une forme comparable, pour empêcher les contournements courants :
+//   - ^ (échappement cmd.exe) : C:\Win^dows -> C:\Windows
+//   - concaténation de chaînes : "C:\Win"dows, 'C:\Win'+'dows' -> C:\Windows
+//   - noms courts 8.3 : C:\PROGRA~1 -> C:\Program Files
+//   - %VAR%, %VAR:~a,b%, $env:VAR développés
+inline std::string canonicalize(const std::string& cmd) {
+    std::string s;
+    for (size_t i = 0; i < cmd.size(); ++i) {  // ^ : on garde le caractère suivant, on jette l'accent
+        if (cmd[i] == '^') {
+            if (i + 1 < cmd.size()) s += cmd[++i];
+            continue;
+        }
+        s += cmd[i];
+    }
+    replaceAll(s, "'+'", "");  // 'C:\\Win'+'dows' -> C:\\Windows
+    replaceAll(s, "\"+\"", "");
+    replaceAll(s, "' + '", "");
+    replaceAll(s, "\" + \"", "");
+    std::string noq;  // guillemets et accents graves retirés : "C:\\Win"dows -> C:\\Windows
+    for (char ch : s)
+        if (ch != '"' && ch != '\'' && ch != '`') noq += ch;
+    s = lower(expandVars(noq));
+    // Noms courts 8.3 des dossiers protégés.
+    replaceAll(s, "progra~1", "program files");
+    replaceAll(s, "progra~2", "program files (x86)");
+    replaceAll(s, "progra~3", "program files");
+    replaceAll(s, "windo~1", "windows");
+    return s;
+}
+
+// Jetons qui ressemblent à des chemins, normalisés (les « .. » et chemins relatifs sont résolus),
+// pour que les vérifications de dossiers protégés ne soient pas trompées par la forme du chemin.
+inline std::vector<std::string> pathTokens(const std::string& canonSlash) {
+    std::vector<std::string> out;
+    std::string cur;
+    auto flush = [&] {
+        std::string t = cur;
+        cur.clear();
+        while (!t.empty() && (t[0] == '>' || t[0] == '<' || t[0] == '@' || t[0] == '&')) t.erase(0, 1);
+        if (t.size() < 2) return;
+        if (t.find('\\') != std::string::npos || t.find("..") != std::string::npos ||
+            (t.size() >= 2 && t[1] == ':'))
+            out.push_back(normalize(t));
+    };
+    for (char ch : canonSlash) {
+        if (std::isspace((unsigned char)ch) || ch == '|' || ch == ';' || ch == ',' || ch == '(' || ch == ')' || ch == '=')
+            flush();
+        else if (ch == '&')
+            cur += ' ', flush();
+        else
+            cur += ch;
+    }
+    flush();
+    // Cible d'un changement de dossier (cd, pushd, Set-Location...) : résolue comme un chemin.
+    static const std::vector<std::string> cdVerbs = {"cd ", "chdir ", "pushd ", "set-location ", "sl "};
+    for (const auto& v : cdVerbs) {
+        size_t pos = 0;
+        while ((pos = canonSlash.find(v, pos)) != std::string::npos) {
+            pos += v.size();
+            while (pos < canonSlash.size() && canonSlash[pos] == ' ') ++pos;
+            size_t e = pos;
+            while (e < canonSlash.size() && canonSlash[e] != ' ' && canonSlash[e] != '&' && canonSlash[e] != '|') ++e;
+            if (e > pos) out.push_back(normalize(canonSlash.substr(pos, e - pos)));
+        }
+    }
+    return out;
+}
+
 inline Decision checkCommand(const std::string& command) {
-    const std::string c = lower(expandForCheck(command));
+    const std::string c = canonicalize(command);  // déjà en minuscules
     std::string slash = c;
     std::replace(slash.begin(), slash.end(), '/', '\\');
+    const std::vector<std::string> toks = pathTokens(slash);
 
     // 1. Toujours interdit : peut détruire le système, les données ou les sauvegardes.
     struct Rule {
@@ -279,14 +368,35 @@ inline Decision checkCommand(const std::string& command) {
     }
 
     // 2. Secrets : jamais lus par une commande (config.ini de CodePortal, .ssh...).
+    auto anyTokenWithin = [&](const std::string& root) {
+        for (const auto& t : toks)
+            if (within(t, root)) return true;
+        return false;
+    };
     for (const auto& s : secretPaths()) {
         std::string tail = s;
         const std::string home = envDir("USERPROFILE");
         if (!home.empty() && startsWith(tail, home + "\\")) tail = tail.substr(home.size() + 1);
-        if (slash.find(s) != std::string::npos || (tail != s && tail.size() > 4 && slash.find(tail) != std::string::npos))
+        if (slash.find(s) != std::string::npos || anyTokenWithin(s) ||
+            (tail != s && tail.size() > 4 && slash.find(tail) != std::string::npos))
             return deny("the command touches " + s + ", which holds credentials or API keys");
     }
     if (looksSecret(slash)) return deny("the command touches files that hold credentials or API keys");
+    for (const auto& t : toks)
+        if (looksSecret(t)) return deny("the command touches files that hold credentials or API keys");
+
+    // Recherche récursive dans AppData / le profil : peut faire remonter config.ini, les clés, les jetons.
+    // On teste `c` (slashes d'origine) car /s et /r deviennent \s, \r après normalisation.
+    const bool recursive = c.find(" /s") != std::string::npos || c.find("-recurse") != std::string::npos ||
+                           c.find(" /r ") != std::string::npos || c.find("-r ") != std::string::npos ||
+                           c.find("-recurse") != std::string::npos;
+    if (recursive) {
+        const std::string appdata = envDir("APPDATA"), local = envDir("LOCALAPPDATA"), home = envDir("USERPROFILE");
+        for (const auto& t : toks)
+            if ((!appdata.empty() && within(t, appdata)) || (!local.empty() && within(t, local)) ||
+                (!home.empty() && t == home))
+                return ask("this command searches recursively through AppData, which holds credentials and API keys");
+    }
 
     // 3. Écriture dans un dossier système : interdit. Lire (dir, type...) reste permis.
     static const std::vector<std::string> writeVerbs = {
@@ -302,7 +412,7 @@ inline Decision checkCommand(const std::string& command) {
     const std::string sd = systemDrive();
     if (writes) {
         for (const auto& root : systemRoots())
-            if (slash.find(root) != std::string::npos)
+            if (slash.find(root) != std::string::npos || anyTokenWithin(root))
                 return deny("the command would change " + root + ", a Windows system location");
         // Cible = un disque entier ou tout le dossier de l'utilisateur (del C:\*, rd /s C:\, rd /s %USERPROFILE%).
         const std::string padded = " " + slash + " ";
@@ -312,6 +422,11 @@ inline Decision checkCommand(const std::string& command) {
             for (const char* end : {" ", "\"", "'", "\\*", "\\ "}) whole.push_back(home + end);
         for (const auto& t : whole)
             if (padded.find(t) != std::string::npos) return deny("the command targets a whole drive or the whole user folder");
+        // Après normalisation : la cible est la racine d'un disque ou tout le dossier utilisateur.
+        const std::string sdRoot = sd.substr(0, 2);  // « c: »
+        for (const auto& t : toks)
+            if (t == sdRoot || (!home.empty() && t == home))
+                return deny("the command targets a whole drive or the whole user folder");
     }
 
     // 4. Sur confirmation : risqué mais parfois légitime.
@@ -334,6 +449,8 @@ inline Decision checkCommand(const std::string& command) {
         {{"reg", "add"}, "changes the registry"},
         {{"reg", "delete"}, "changes the registry"},
         {{"reg", "import"}, "changes the registry"},
+        {{"regedit"}, "imports or changes the registry"},
+        {{"regini"}, "changes the registry"},
         {{"set-itemproperty"}, "may change the registry"},
         {{"schtasks", "\\create"}, "creates a scheduled task"},
         {{"sc", "create"}, "creates a Windows service"},
@@ -368,6 +485,45 @@ inline Decision checkCommand(const std::string& command) {
     return allow();
 }
 
+// Chemins normalisés des scripts qu'une commande exécute (.bat, .ps1, .vbs...), pour demander
+// confirmation avant de lancer un script que l'agent vient d'écrire.
+inline std::vector<std::string> referencedScripts(const std::string& command) {
+    static const std::vector<std::string> ext = {".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe",
+                                                 ".js",  ".jse", ".wsf", ".wsh", ".hta", ".scr", ".py"};
+    std::vector<std::string> out;
+    const std::string canon = canonicalize(command);
+    std::string slash = canon;
+    std::replace(slash.begin(), slash.end(), '/', '\\');
+    for (const auto& t : pathTokens(slash)) {
+        const std::string low = lower(t);
+        for (const auto& e : ext)
+            if (low.size() >= e.size() && low.compare(low.size() - e.size(), e.size(), e) == 0) {
+                out.push_back(t);
+                break;
+            }
+    }
+    // Jetons sans « \ » (nom nu, ex. « evil.bat ») : résolus dans le dossier de travail.
+    std::string cur;
+    auto consider = [&](const std::string& tok) {
+        const std::string low = lower(tok);
+        for (const auto& e : ext)
+            if (low.size() >= e.size() && low.compare(low.size() - e.size(), e.size(), e) == 0)
+                out.push_back(normalize(tok));
+    };
+    for (char ch : slash) {
+        if (std::isspace((unsigned char)ch) || ch == '&' || ch == '|' || ch == ';' || ch == ',' || ch == '(' || ch == ')') {
+            consider(cur);
+            cur.clear();
+        } else {
+            cur += ch;
+        }
+    }
+    consider(cur);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 // Texte des règles pour /safety.
 inline std::vector<std::pair<std::string, std::string>> rules() {
     std::string roots;
@@ -380,6 +536,8 @@ inline std::vector<std::pair<std::string, std::string>> rules() {
         {"API keys", "removed from the environment of the agent's commands (*_API_KEY, *_TOKEN, *_SECRET)"},
         {"Blocked commands", "format X:, diskpart, bcdedit, vssadmin delete, shutdown, HKLM changes, net user, Defender..."},
         {"Confirmed commands", "recursive deletes, git push/reset --hard/clean, installs, registry, downloads..."},
+        {"Running scripts", "running a script the agent just wrote (.bat, .ps1...) asks you first"},
+        {"Command tricks", "checks see through ^, quotes, 8.3 names, %VAR% and .. so paths cannot be disguised"},
     };
 }
 

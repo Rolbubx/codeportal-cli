@@ -735,13 +735,18 @@ std::string toolTitle(const std::string& name, const std::vector<std::string>& a
 }
 
 // Affiche le résultat d'une commande : résumé sous ⎿ (rouge si erreur), diff coloré, sortie si demandée.
+// Beaucoup de lignes à montrer : on en affiche une première tranche, puis on demande (touche) pour la suite.
+// Retourne true si l'utilisateur veut voir le reste. Hors interface (pas de TUI) : tout est affiché.
+bool revealRest(size_t remaining, const std::string& what) {
+    if (!tui::active()) return true;
+    return tui::choose("Show the " + plural(remaining, what + " line") + " not shown?", "", {"Show", "Collapse"}) == "Show";
+}
+
 void printOutcome(const ToolResult& r, bool full) {
     if (!r.summary.empty()) out() << (r.ok ? P.muted : P.err) << "  ⎿  " << r.summary << ansi::reset << "\n";
     // Diff façon Claude Code : numéro de ligne, signe, fond rouge/vert sur toute la largeur.
-    const size_t maxDiff = 40;
     const size_t width = frameWidth() - 6;
-    for (size_t i = 0; i < r.diff.size() && i < maxDiff; ++i) {
-        const DiffLine& d = r.diff[i];
+    auto printDiff = [&](const DiffLine& d) {
         std::string num = std::to_string(d.lineNo);
         if (num.size() < 4) num = std::string(4 - num.size(), ' ') + num;
         std::string body = num + " " + (d.kind == ' ' ? std::string(" ") : std::string(1, d.kind)) + " " + d.text;
@@ -750,19 +755,36 @@ void printOutcome(const ToolResult& r, bool full) {
         if (d.kind == ' ') out() << "      " << P.muted << body << ansi::reset << "\n";
         else
             out() << "      " << (d.kind == '+' ? P.addBg : P.delBg) << (d.kind == '+' ? P.add : P.del) << body
-                      << std::string(pad, ' ') << ansi::reset << "\n";
+                  << std::string(pad, ' ') << ansi::reset << "\n";
+    };
+    const size_t firstChunk = 30;  // au-delà, on demande une touche pour voir la suite
+    size_t i = 0;
+    for (; i < r.diff.size() && i < firstChunk; ++i) printDiff(r.diff[i]);
+    if (i < r.diff.size()) {
+        if (revealRest(r.diff.size() - i, "changed")) {
+            out() << std::flush;
+            for (; i < r.diff.size(); ++i) printDiff(r.diff[i]);
+        } else {
+            out() << P.muted << "      … +" << r.diff.size() - i << " more lines (collapsed)" << ansi::reset << "\n";
+        }
     }
-    if (r.diff.size() > maxDiff)
-        out() << P.muted << "      … +" << r.diff.size() - maxDiff << " lines" << ansi::reset << "\n";
 
     if ((full || r.alwaysShow) && !r.output.empty()) {
         auto lines = splitLines(r.output);
         while (!lines.empty() && trim(lines.back()).empty()) lines.pop_back();
-        const size_t maxLines = 25;
-        for (size_t i = 0; i < lines.size() && i < maxLines; ++i)
-            out() << P.muted << (i == 0 && r.summary.empty() ? "  ⎿  " : "     ") << lines[i] << ansi::reset << "\n";
-        if (lines.size() > maxLines)
-            out() << P.muted << "     … +" << lines.size() - maxLines << " more lines" << ansi::reset << "\n";
+        auto printLine = [&](size_t k) {
+            out() << P.muted << (k == 0 && r.summary.empty() ? "  ⎿  " : "     ") << lines[k] << ansi::reset << "\n";
+        };
+        size_t k = 0;
+        for (; k < lines.size() && k < firstChunk; ++k) printLine(k);
+        if (k < lines.size()) {
+            if (revealRest(lines.size() - k, "output")) {
+                out() << std::flush;
+                for (; k < lines.size(); ++k) printLine(k);
+            } else {
+                out() << P.muted << "     … +" << lines.size() - k << " more lines (collapsed)" << ansi::reset << "\n";
+            }
+        }
     }
 }
 
@@ -939,6 +961,14 @@ std::string executeAgentTool(const ToolCallRec& tc) {
     std::string refusal;
     if (parsed && tc.name == "run_command") {
         refusal = guard(safety::checkCommand(command), "run a command:\n" + command, "");
+        // Lancer un script que l'agent vient d'écrire : on demande (il pourrait contourner les garde-fous).
+        if (refusal.empty())
+            for (const auto& s : safety::referencedScripts(command))
+                if (agentWrittenFiles().count(s)) {
+                    refusal = guard(safety::ask("it runs a script it just created, which can do anything a command can"),
+                                    "run a script it just wrote:\n" + command, "");
+                    break;
+                }
     } else if (parsed && isToolName(tc.name) && tc.name != "get_context" && tc.name != "context") {
         const bool reads = tc.name == "read_file" || tc.name == "list_dir";
         const std::string target = path.empty() ? "." : expandPath(path);
