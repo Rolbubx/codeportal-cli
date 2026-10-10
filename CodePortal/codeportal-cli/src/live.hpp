@@ -2,7 +2,7 @@
 //
 //   - Ligne de statut animée : ✻ Pondering… (12s · ↓ 1.2k tokens · esc to interrupt)
 //     L'étoile tourne, le verbe scintille, Échap interrompt la génération.
-//   - Écriture au fil du streaming : la réflexion (✻ Thinking…) et la réponse (⏺ ...) s'affichent
+//   - Écriture au fil du streaming : la réflexion (✻ Thinking…) et la réponse (● ...) s'affichent
 //     au fur et à mesure dans la zone en direct, puis sont versées dans le journal une fois terminées.
 //
 // Le dessin lui-même est fait par l'interface (tui.hpp) ; LiveView ne fait que la tenir à jour.
@@ -152,11 +152,11 @@ private:
     Block kind_ = Block::Answer;
     bool inBlock_ = false;
     bool mdMode_ = false;
-    bool mdFirst_ = true;  // la prochaine ligne affichée est la première du bloc (⏺)
+    bool mdFirst_ = true;  // la prochaine ligne affichée est la première du bloc (●)
     std::string text_;     // texte brut du bloc en cours
 
     std::string prefix(bool first) const {
-        return first ? std::string(P.text) + "⏺" + ansi::reset + " " : std::string("  ");
+        return first ? std::string(P.text) + "●" + ansi::reset + " " : std::string("  ");
     }
 
     size_t lineWidth() const { return std::max<size_t>(30, std::min<size_t>(consoleWidth() - 4, 110)); }
@@ -176,7 +176,7 @@ private:
             if (blank && out.size() > 1) out.push_back("");
             blank = false;
             for (const auto& l : wrapWords(para, lineWidth())) {
-                out.push_back((first ? std::string(P.text) + "⏺" + ansi::reset + " " : std::string("  ")) + style + l +
+                out.push_back((first ? std::string(P.text) + "●" + ansi::reset + " " : std::string("  ")) + style + l +
                               ansi::reset);
                 first = false;
             }

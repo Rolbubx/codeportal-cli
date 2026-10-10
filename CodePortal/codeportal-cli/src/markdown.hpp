@@ -498,7 +498,7 @@ std::vector<std::string> codeLines(std::string line, const std::string& lang, si
     while (!line.empty()) {  // lignes trop longues : suite sur la ligne suivante
         std::string chunk = displayLength(line) > inner ? utf8Prefix(line, inner) : line;
         line = line.substr(chunk.size());
-        out.push_back(std::string(P.muted) + (first ? "│ " : "│↪") + ansi::reset + highlight(chunk, l));
+        out.push_back(std::string(P.muted) + (first ? "│ " : "│↳") + ansi::reset + highlight(chunk, l));
         first = false;
     }
     return out;
@@ -598,7 +598,7 @@ std::vector<std::string> render(const std::string& text, size_t width) {
                 marker = item.number + ".";
                 markerStyled = std::string(P.accent) + marker + ansi::reset;
             } else {
-                static const char* bullets[] = {"•", "◦", "▪", "‣"};
+                static const char* bullets[] = {"•", "◦", "▸", "‣"};
                 marker = bullets[level];
                 markerStyled = std::string(P.muted) + marker + ansi::reset;
             }
@@ -608,8 +608,8 @@ std::vector<std::string> render(const std::string& text, size_t width) {
                 markerStyled += std::string(" ") + P.muted + "☐" + ansi::reset;
             } else if (startsWith(body, "[x] ") || startsWith(body, "[X] ")) {
                 body = body.substr(4);
-                marker += " ☑";
-                markerStyled += std::string(" ") + P.ok + "☑" + ansi::reset;
+                marker += " ☒";
+                markerStyled += std::string(" ") + P.ok + "☒" + ansi::reset;
             }
             const size_t pad = level * 2;
             const size_t hang = pad + displayLength(marker) + 1;

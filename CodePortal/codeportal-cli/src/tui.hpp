@@ -545,7 +545,7 @@ inline void quit() {
 // ---------------------------------------------------------------------------
 namespace detail {
 
-inline const char* kGlyphs[] = {"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"};
+inline const char* kGlyphs[] = {"·", "✢", "✷", "✶", "✻", "✽", "✻", "✶", "✷", "✢"};
 
 inline long frameNo() {
     using namespace std::chrono;
@@ -765,7 +765,7 @@ inline Element renderLocked(State& s) {
             inputLabel = pr->items.empty() ? "your answer" : "or type your own answer";
         } else if (pr->kind == Kind::Choose) {
             frameColor = colorOf(P.num);
-            body.push_back(hbox({text(" ⚠ ") | bold | color(frameColor), paragraph(pr->title) | bold | color(textc)}));
+            body.push_back(hbox({text(" ▲ ") | bold | color(frameColor), paragraph(pr->title) | bold | color(textc)}));
             if (!pr->detail.empty())
                 for (const auto& l : splitLines(pr->detail)) body.push_back(hbox({text("   "), muted(l)}));
             body.push_back(optionList(*pr, maxRows, true));
@@ -1158,7 +1158,7 @@ inline bool onEvent(State& s, Event e) {
             resolveLocked(s, s.req, line);
         } else if (!line.empty()) {  // l'agent (ou une commande) travaille : message mis de côté
             if (line[0] == '/') {
-                logLocked(std::string(P.err) + "✖ " + ansi::reset + P.err + "Commands wait until the agent is done." +
+                logLocked(std::string(P.err) + "✗ " + ansi::reset + P.err + "Commands wait until the agent is done." +
                           ansi::reset + "\n");
                 return true;
             }

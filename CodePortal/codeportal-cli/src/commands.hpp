@@ -49,7 +49,7 @@ void chooseModel(const Provider& p) {
         const bool known = std::find(ids.begin(), ids.end(), current) != ids.end();
         if (known) out() << "  " << P.muted << "Model: " << current << ansi::reset << "\n";
         else
-            out() << "  " << P.num << "⚠ " << ansi::reset << P.muted << current << " is not in " << p.label
+            out() << "  " << P.num << "▲ " << ansi::reset << P.muted << current << " is not in " << p.label
                       << "'s list and may not work. Run /model to choose another one." << ansi::reset << "\n";
         return;
     }
@@ -313,7 +313,7 @@ std::string runShell(const std::string& cmd, bool fromAgent, int* exitCode = nul
 // ---------------------------------------------------------------------------
 // Session, projet et diagnostic
 // ---------------------------------------------------------------------------
-constexpr const char* kVersion = "1.2.0";
+constexpr const char* kVersion = "1.2.1";
 
 std::string portalPath() { return g.cwd + "\\PORTAL.md"; }
 
@@ -544,7 +544,7 @@ void cmdCompact() {
 
 void cmdDoctor() {
     auto check = [](int level, const std::string& name, const std::string& detail) {
-        const char* icon = level == 0 ? "✔" : level == 1 ? "⚠" : "✖";
+        const char* icon = level == 0 ? "✓" : level == 1 ? "▲" : "✗";
         const char* color = level == 0 ? P.ok : level == 1 ? P.num : P.err;
         out() << "  " << color << icon << ansi::reset << " " << name
                   << std::string(std::max<int>(2, 26 - (int)displayLength(name)), ' ') << P.muted << detail
@@ -847,7 +847,7 @@ std::vector<tui::PlanStep> parsePlan(const std::vector<std::string>& steps) {
         const size_t close = st.find(']');
         if (!st.empty() && st[0] == '[' && close != std::string::npos && close <= 4) {  // « [x] », « [ >] »...
             const std::string m = trim(st.substr(1, close - 1));
-            if (m == "x" || m == "X" || m == "v" || m == "✓" || m == "✔") p.state = 'x';
+            if (m == "x" || m == "X" || m == "v" || m == "✓" || m == "✓") p.state = 'x';
             else if (m == ">" || m == "~" || m == "-" || m == "*" || m == "…") p.state = '>';
             st = trim(st.substr(close + 1));
         }

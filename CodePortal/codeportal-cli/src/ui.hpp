@@ -68,7 +68,7 @@ void printBanner() {
     const std::string title = "Welcome to CodePortal!";
     const std::string titlePlain = "✻ " + title;
     if (animate) {
-        static const char* glyphs[] = {"·", "✢", "✳", "✶", "✻", "✽"};
+        static const char* glyphs[] = {"·", "✢", "✷", "✶", "✻", "✽"};
         const long frames = (long)displayLength(title) + 6;
         for (long f = 0; f < frames; ++f) {
             std::string styled = std::string(P.accent) + glyphs[f % 6] + ansi::reset + " " +
@@ -223,7 +223,7 @@ void printProviders() {
         std::string source;
         std::string key = keyFor(p, &source);
         std::string status = key.empty() ? std::string(P.muted) + "no key" + ansi::reset
-                                         : std::string(P.ok) + "✔ " + maskKey(key) + ansi::reset + " " + P.muted +
+                                         : std::string(P.ok) + "✓ " + maskKey(key) + ansi::reset + " " + P.muted +
                                                "(" + source + ")" + ansi::reset;
         bool active = act == &p;
         out() << "  " << (active ? P.accent : "") << (active ? "● " : "  ") << ansi::reset << ansi::bold << p.id
@@ -232,19 +232,19 @@ void printProviders() {
 }
 
 void printOk(const std::string& msg) {
-    out() << P.ok << "✔ " << ansi::reset << msg << "\n";
+    out() << P.ok << "✓ " << ansi::reset << msg << "\n";
 }
 
 void printError(const std::string& msg) {
     out() << "\r\x1b[2K";
     auto lines = wrapWords(msg, frameWidth() - 4);
     for (size_t i = 0; i < lines.size(); ++i)
-        out() << (i == 0 ? std::string(P.err) + "✖ " + ansi::reset : std::string("  ")) << P.err << lines[i]
+        out() << (i == 0 ? std::string(P.err) + "✗ " + ansi::reset : std::string("  ")) << P.err << lines[i]
                   << ansi::reset << "\n";
 }
 
 // ---------------------------------------------------------------------------
-// Appels d'outils : ⏺ Bash(dir)  — gris pendant l'exécution, vert si OK, rouge si erreur.
+// Appels d'outils : ● Bash(dir)  — gris pendant l'exécution, vert si OK, rouge si erreur.
 // ---------------------------------------------------------------------------
 enum class ToolState { Pending, Ok, Error };
 
@@ -256,7 +256,7 @@ std::string toolLine(const std::string& title, ToolState state) {
     const std::string name = paren == std::string::npos ? label : label.substr(0, paren);
     const std::string rest = paren == std::string::npos ? "" : label.substr(paren);
     const char* color = state == ToolState::Pending ? P.warn : state == ToolState::Ok ? P.ok : P.err;
-    return std::string(color) + "⏺" + ansi::reset + " " + ansi::bold + P.text + name + ansi::reset + P.text + rest +
+    return std::string(color) + "●" + ansi::reset + " " + ansi::bold + P.text + name + ansi::reset + P.text + rest +
            ansi::reset;
 }
 
@@ -274,11 +274,11 @@ std::vector<std::string> renderMarkdown(const std::string& text, size_t width) {
     return md::render(text, width);
 }
 
-// Réponse de l'assistant (sans ligne vide avant) : ⏺ en tête, Markdown rendu.
+// Réponse de l'assistant (sans ligne vide avant) : ● en tête, Markdown rendu.
 void printAnswerBody(const std::string& text) {
     auto lines = renderMarkdown(text, frameWidth() - 3);
     for (size_t i = 0; i < lines.size(); ++i)
-        out() << (i == 0 ? std::string(P.text) + "⏺" + ansi::reset + " " : std::string("  ")) << lines[i] << "\n";
+        out() << (i == 0 ? std::string(P.text) + "●" + ansi::reset + " " : std::string("  ")) << lines[i] << "\n";
     out() << std::flush;
 }
 
