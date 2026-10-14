@@ -5,10 +5,12 @@
 // Pas d'interface : le programme écoute sur 127.0.0.1 par défaut et répond en JSON.
 //   GET  /                                    la page de chat (web/codeportal-chat.html), sans jeton
 //   GET  /api/v1/status                       fournisseur, modèle, dossier, occupé ou non
-//   POST /api/v1/ask      {"message": "..."}  pose une question ; l'agent peut lire et modifier les fichiers
+//   POST /api/v1/ask      {"message": "...", "conversation": "id"}
+//                                             pose une question ; l'agent peut lire et modifier les fichiers.
+//                                             Chaque conversation a son propre historique (défaut : "default").
 //   GET  /api/v1/events?after=N               ce que fait l'agent, en direct : événements numérotés après N
 //   POST /api/v1/cancel                       arrête le tour en cours
-//   POST /api/v1/reset                        efface la conversation
+//   POST /api/v1/reset    {"conversation": "id"}  efface cette conversation (sans corps : toutes)
 // Les routes /api/v1/* exigent « Authorization: Bearer <jeton> ». Le jeton est créé au premier lancement
 // dans api.token, à côté de config.ini. Un seul tour à la fois : un ask pendant un autre tour reçoit 409.
 // Au démarrage, le lien à ouvrir (le jeton est mis dans le fragment #token=...) est affiché.
@@ -23,6 +25,7 @@
 #include <cstdint>
 #include <deque>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <random>
 #include <string>
@@ -40,6 +43,21 @@ constexpr size_t kMaxEventsPerPoll = 500;
 inline std::mutex turnMu;  // un seul tour à la fois
 inline std::atomic<bool> busy{false};
 inline std::string token;
+
+// Une conversation par identifiant (envoyé par la page). Protégé par turnMu : l'historique de la
+// conversation est placé dans g.history le temps d'un tour, puis rangé.
+constexpr size_t kMaxSessions = 100;
+inline std::map<std::string, std::vector<Message>> sessions;
+
+// Identifiant de conversation sûr : lettres, chiffres, « _ » et « - », 64 caractères au plus.
+std::string sessionId(const JVal& body) {
+    const JVal* v = body.type == JVal::OBJ ? body.find("conversation") : nullptr;
+    std::string id = v && v->type == JVal::STR ? v->str : "";
+    id.erase(std::remove_if(id.begin(), id.end(), [](unsigned char c) { return !std::isalnum(c) && c != '_' && c != '-'; }),
+             id.end());
+    if (id.size() > 64) id.resize(64);
+    return id.empty() ? "default" : id;
+}
 
 // Journal des événements : numérotés, pour que le client demande « tout ce qui suit N ».
 struct Event {
@@ -291,30 +309,50 @@ void handleAsk(SOCKET s, const std::string& body) {
     if (!lock.owns_lock()) return reply(s, 409, "Conflict", errorJson("a turn is already running"));
 
     const std::string message = field->str;
+    const std::string conversation = sessionId(v);
+    if (!sessions.count(conversation) && sessions.size() >= kMaxSessions) sessions.erase(sessions.begin());
+    std::vector<Message>& saved = sessions[conversation];
+
+    // L'historique de cette conversation devient celui de l'agent pendant le tour, puis il est rangé,
+    // même si le tour échoue.
+    struct Swap {
+        std::vector<Message>& a;
+        std::vector<Message>& b;
+        Swap(std::vector<Message>& x, std::vector<Message>& y) : a(x), b(y) { std::swap(a, b); }
+        ~Swap() { std::swap(a, b); }
+    };
+
     LiveView::get().clearCancel();
     busy = true;
-    activity("turn_start", "{\"message\":" + jsonStr(message) + "}");
-    std::string console;
-    try {
-        console = captureOutput([&] { chat(message); });  // l'affichage part dans le vide : seul le résultat compte
-    } catch (...) {
-        busy = false;
-        activity("turn_end", "{\"answer\":\"\",\"cancelled\":false,\"error\":\"the turn failed\"}");
-        return reply(s, 500, "Internal Server Error", errorJson("the turn failed"));
+    activity("turn_start", "{\"message\":" + jsonStr(message) + ",\"conversation\":" + jsonStr(conversation) + "}");
+    std::string console, answer, steps;
+    bool failed = false;
+    {
+        Swap swap(g.history, saved);
+        try {
+            console = captureOutput([&] { chat(message); });  // l'affichage part dans le vide : seul le résultat compte
+        } catch (...) {
+            failed = true;
+        }
+        const size_t from = turnStart(message);
+        answer = lastAnswer(from);
+        steps = stepsJson(from);
     }
     busy = false;
 
     const bool cancelled = LiveView::get().cancelRequested();
-    const size_t from = turnStart(message);
-    const std::string answer = lastAnswer(from);
+    const std::string error = failed ? "the turn failed" : answer.empty() ? "no answer from the model" : "";
+    // Enregistré avant la réponse HTTP : quand la page reçoit la réponse, tout le déroulé est déjà lisible.
     activity("turn_end", "{\"answer\":" + jsonStr(answer) + ",\"cancelled\":" + (cancelled ? "true" : "false") +
-                             ",\"error\":" + jsonStr(answer.empty() ? "no answer from the model" : "") + "}");
+                             ",\"error\":" + jsonStr(error) + ",\"conversation\":" + jsonStr(conversation) + "}");
+    if (failed) return reply(s, 500, "Internal Server Error", errorJson(error));
 
     std::string json = "{\"ok\":" + std::string(answer.empty() ? "false" : "true") + ",\"answer\":" + jsonStr(answer) +
-                       ",\"cancelled\":" + (cancelled ? "true" : "false") + ",\"steps\":" + stepsJson(from);
+                       ",\"cancelled\":" + (cancelled ? "true" : "false") + ",\"conversation\":" + jsonStr(conversation) +
+                       ",\"steps\":" + steps;
     if (answer.empty()) {  // rien de la part du modèle : on renvoie ce qui a été affiché (ex. « No API key »)
         const std::string log = stripControl(console);
-        json += ",\"error\":" + jsonStr("no answer from the model") + ",\"log\":" + jsonStr(truncate(log, 4000));
+        json += ",\"error\":" + jsonStr(error) + ",\"log\":" + jsonStr(truncate(log, 4000));
     }
     reply(s, answer.empty() ? 502 : 200, answer.empty() ? "Bad Gateway" : "OK", json + "}");
 }
@@ -325,10 +363,18 @@ void handleCancel(SOCKET s) {
     reply(s, 200, "OK", "{\"ok\":true,\"cancelling\":true}");
 }
 
-void handleReset(SOCKET s) {
+// {"conversation": "id"} efface cette conversation ; sans corps, toutes.
+void handleReset(SOCKET s, const std::string& body) {
     std::unique_lock<std::mutex> lock(turnMu, std::try_to_lock);
     if (!lock.owns_lock()) return reply(s, 409, "Conflict", errorJson("a turn is already running"));
-    g.history.clear();
+    JVal v;
+    JsonParser parser(body.empty() ? "{}" : body);
+    if (parser.parse(v) && v.type == JVal::OBJ && v.find("conversation")) {
+        sessions.erase(sessionId(v));
+    } else {
+        sessions.clear();
+        g.history.clear();
+    }
     reply(s, 200, "OK", "{\"ok\":true}");
 }
 
@@ -377,7 +423,7 @@ void serveConnection(SOCKET s) {
     } else if (target == "/api/v1/cancel" && req.method == "POST") {
         handleCancel(s);
     } else if (target == "/api/v1/reset" && req.method == "POST") {
-        handleReset(s);
+        handleReset(s, req.body);
     } else {
         reply(s, 404, "Not Found", errorJson("unknown route: " + req.method + " " + target));
     }

@@ -14,10 +14,10 @@ It listens on `127.0.0.1` by default; `--bind 0.0.0.0` makes it reachable from o
 | Method | Route | Body | Result |
 | --- | --- | --- | --- |
 | GET | `/api/v1/status` | | provider, model, working directory, `busy` |
-| POST | `/api/v1/ask` | `{"message": "..."}` | `answer`, `steps` (each tool call with its arguments and result), `cancelled` |
+| POST | `/api/v1/ask` | `{"message": "...", "conversation": "id"}` | `answer`, `steps` (each tool call with its arguments and result), `cancelled`. Each conversation id has its own history (default `"default"`) |
 | GET | `/api/v1/events?after=N` | | live activity: numbered events (`turn_start`, `model`, `thinking`, `text`, `tool_start`, `tool_end`, `turn_end`) after N. Without `after`, starts at the latest turn |
 | POST | `/api/v1/cancel` | | stops the turn in progress |
-| POST | `/api/v1/reset` | | clears the conversation |
+| POST | `/api/v1/reset` | `{"conversation": "id"}` | clears that conversation, or every conversation without a body |
 
 One turn runs at a time: `ask` returns `409` while another is in progress. The agent can read and edit files and run shell commands in the working directory, so anything that holds the token can change your project. Keep the token private.
 
