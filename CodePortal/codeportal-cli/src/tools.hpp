@@ -220,6 +220,7 @@ ToolResult failTool(const std::string& msg) {
 }
 
 bool askYesNo(const std::string& question) {
+    if (g_headless) return false;  // pas de clavier : on refuse sans attendre
     std::cout << question << " [y/N] " << std::flush;
     std::string answer;
     std::getline(std::cin, answer);

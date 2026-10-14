@@ -7,6 +7,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>  // avant windows.h (l'API HTTP locale en a besoin)
 #include <windows.h>
 #include <conio.h>
 
@@ -20,6 +21,10 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+// Mode --headless : pas d'interface ni de clavier. Les fonctions qui attendraient une touche ou une réponse
+// s'abstiennent (voir api.hpp).
+inline bool g_headless = false;
 
 namespace ansi {
 constexpr const char* reset = "\x1b[0m";

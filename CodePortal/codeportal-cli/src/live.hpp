@@ -98,7 +98,7 @@ public:
         {
             std::lock_guard<std::mutex> lk(mu_);
             verb_ = verb;
-            watchEsc_ = watchEsc;
+            watchEsc_ = watchEsc && !g_headless;  // pas de clavier en mode headless
             interrupted_ = false;
             tokens_ = 0;
             start_ = std::chrono::steady_clock::now();
@@ -117,7 +117,11 @@ public:
     }
 
     void setTokens(size_t n) { tokens_ = n; }
-    bool interrupted() const { return interrupted_; }
+    // Vrai après Échap ou après une demande d'arrêt venant de l'API (requestCancel).
+    bool interrupted() const { return interrupted_ || cancelRequested_; }
+    void requestCancel() { cancelRequested_ = true; }
+    void clearCancel() { cancelRequested_ = false; }
+    bool cancelRequested() const { return cancelRequested_; }
 
     // Ctrl+O pendant que l'agent travaille : `f` est appelée depuis le fil du spinner, hors du verrou,
     // sans interrompre le flux ni l'outil en cours.
@@ -257,6 +261,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> interrupted_{false};
     std::atomic<bool> expandRequested_{false};
+    std::atomic<bool> cancelRequested_{false};  // arrêt demandé par l'API ; ne se remet pas à zéro entre étapes
     std::function<void()> onExpand_;
     std::atomic<size_t> tokens_{0};
     std::string verb_;
