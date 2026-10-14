@@ -9,7 +9,7 @@ CodePortal can run without its console interface, as a local server that other p
 codeportal.exe --headless --port 8765
 ```
 
-It listens on `127.0.0.1` only. On first launch it creates an access token in `%APPDATA%\CodePortal\api.token`; every request must send it as `Authorization: Bearer <token>`. An API key must already be configured (start CodePortal once interactively to add one).
+It listens on `127.0.0.1` by default; `--bind 0.0.0.0` makes it reachable from other computers on the network (only do this on a network you trust). On first launch it creates an access token in `%APPDATA%\CodePortal\api.token`; every request must send it as `Authorization: Bearer <token>`. An API key must already be configured (start CodePortal once interactively to add one).
 
 | Method | Route | Body | Result |
 | --- | --- | --- | --- |
@@ -28,3 +28,7 @@ curl -H "Authorization: Bearer $(cat "$APPDATA/CodePortal/api.token")" \
      -d '{"message":"Add a comment at the top of src/main.cpp explaining what it does"}' \
      http://127.0.0.1:8765/api/v1/ask
 ```
+
+### Chat page
+
+`CodePortal/codeportal-cli/web/codeportal-chat.html` is a chat interface for the server. Open it in a browser, enter the server address (`http://127.0.0.1:8765` by default, or the address of the computer running CodePortal) and the token from `api.token`. Each answer shows the tool calls the agent made, with their inputs and results. The page is a single file with no dependencies, and it works offline apart from talking to the server.

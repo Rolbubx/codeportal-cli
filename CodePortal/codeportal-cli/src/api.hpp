@@ -1,8 +1,8 @@
 // api.hpp : mode headless et API HTTP locale, pour piloter CodePortal depuis un autre programme.
 //
-//   codeportal.exe --headless [--port 8765]
+//   codeportal.exe --headless [--port 8765] [--bind 127.0.0.1]
 //
-// Pas d'interface : le programme écoute sur 127.0.0.1 uniquement et répond en JSON.
+// Pas d'interface : le programme écoute sur 127.0.0.1 par défaut et répond en JSON.
 //   GET  /api/v1/status                       fournisseur, modèle, dossier, occupé ou non
 //   POST /api/v1/ask      {"message": "..."}  pose une question ; l'agent peut lire et modifier les fichiers
 //   POST /api/v1/cancel                       arrête le tour en cours
@@ -10,8 +10,10 @@
 // Chaque requête porte « Authorization: Bearer <jeton> ». Le jeton est créé au premier lancement dans
 // api.token, à côté de config.ini. Un seul tour à la fois : un ask pendant un autre tour reçoit 409.
 //
+// La page web web/codeportal-chat.html s'y connecte ; --bind 0.0.0.0 la rend joignable depuis le réseau.
+//
 // Attention : le jeton donne à l'agent le droit de modifier des fichiers et d'exécuter des commandes
-// dans le dossier de travail. Le serveur n'écoute que sur la boucle locale.
+// dans le dossier de travail. Par défaut le serveur n'écoute que sur la boucle locale.
 #pragma once
 
 #include <algorithm>
@@ -147,10 +149,14 @@ bool readRequest(SOCKET s, Request& req) {
     return true;
 }
 
+// Réponse JSON. CORS : une page web (web/codeportal-chat.html) peut appeler l'API. Le jeton reste
+// obligatoire, et une page web ne peut pas le lire.
 void reply(SOCKET s, int code, const char* reason, const std::string& json) {
     const std::string out = "HTTP/1.1 " + std::to_string(code) + " " + reason +
                             "\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " +
-                            std::to_string(json.size()) + "\r\nConnection: close\r\n\r\n" + json;
+                            std::to_string(json.size()) +
+                            "\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Authorization, Content-Type"
+                            "\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nConnection: close\r\n\r\n" + json;
     size_t sent = 0;
     while (sent < out.size()) {
         const int n = send(s, out.data() + sent, (int)(out.size() - sent), 0);
@@ -263,6 +269,8 @@ void serveConnection(SOCKET s) {
     Request req;
     if (!readRequest(s, req)) {
         reply(s, 400, "Bad Request", errorJson("malformed request"));
+    } else if (req.method == "OPTIONS") {  // préflight CORS du navigateur : pas de jeton demandé
+        reply(s, 204, "No Content", "");
     } else if (req.authorization.rfind("Bearer ", 0) != 0 || !sameToken(token, trim(req.authorization.substr(7)))) {
         reply(s, 401, "Unauthorized", errorJson("missing or wrong token: send Authorization: Bearer <token>"));
     } else if (req.path == "/api/v1/status" && req.method == "GET") {
@@ -279,8 +287,8 @@ void serveConnection(SOCKET s) {
     closesocket(s);
 }
 
-// Écoute sur 127.0.0.1:port. Ne retourne qu'en cas d'erreur.
-int run(unsigned short port) {
+// Écoute sur host:port (127.0.0.1 par défaut). Ne retourne qu'en cas d'erreur.
+int run(const std::string& host, unsigned short port) {
     if (!activeProvider()) {
         std::cerr << "No API key configured. Start CodePortal once with a key, then run --headless again.\n";
         return 1;
@@ -298,16 +306,23 @@ int run(unsigned short port) {
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // jamais exposé hors de cette machine
+    addr.sin_addr.s_addr = inet_addr(host.c_str());
+    if (addr.sin_addr.s_addr == INADDR_NONE) {
+        std::cerr << "Invalid address: " << host << "\n";
+        return 1;
+    }
     if (bind(listener, (sockaddr*)&addr, sizeof addr) == SOCKET_ERROR || listen(listener, 16) == SOCKET_ERROR) {
-        std::cerr << "Cannot listen on 127.0.0.1:" << port << " (is the port already in use? try --port)\n";
+        std::cerr << "Cannot listen on " << host << ":" << port << " (is the port already in use? try --port)\n";
         return 1;
     }
     token = loadOrCreateToken();
     std::cout << "CodePortal API listening on http://127.0.0.1:" << port << "\n"
               << "Token file: " << tokenPath() << "\n"
-              << "Send it as: Authorization: Bearer <token>\n"
-              << std::flush;
+              << "Send it as: Authorization: Bearer <token>\n";
+    if (host != "127.0.0.1" && host != "localhost")
+        std::cout << "Warning: reachable from other machines (" << host
+                  << "). Anyone with the token can make the agent edit files and run commands here.\n";
+    std::cout << std::flush;
     for (;;) {
         const SOCKET c = accept(listener, nullptr, nullptr);
         if (c == INVALID_SOCKET) continue;

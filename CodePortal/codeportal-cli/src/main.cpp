@@ -35,16 +35,18 @@ void onboarding() {
 
 }  // namespace
 
-//   codeportal.exe --headless [--port 8765]   : pas d'interface, API HTTP locale (voir api.hpp)
+//   codeportal.exe --headless [--port 8765] [--bind 127.0.0.1]   : pas d'interface, API HTTP (voir api.hpp)
 int main(int argc, char** argv) {
     setupConsole();
 
     bool headless = false;
     unsigned short port = 8765;
+    std::string bind = "127.0.0.1";
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--headless") headless = true;
         else if (arg == "--port" && i + 1 < argc) port = (unsigned short)std::atoi(argv[++i]);
+        else if (arg == "--bind" && i + 1 < argc) bind = argv[++i];
     }
 
     const char* appdata = std::getenv("APPDATA");
@@ -55,7 +57,7 @@ int main(int argc, char** argv) {
     applyTheme(g.theme);
     if (headless) {
         g_headless = true;
-        return api::run(port);
+        return api::run(bind, port);
     }
     LiveView::get().setExpandHandler(expandLastOutcome);
 
