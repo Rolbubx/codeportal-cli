@@ -18,8 +18,9 @@
     --code: #efebe2;
     --ok: #3d8a58;
     --err: #b2443a;
+    --add: rgba(61, 138, 88, .14);
+    --del: rgba(178, 68, 58, .13);
     --shadow: 0 1px 2px rgba(40, 30, 20, .06), 0 10px 30px rgba(40, 30, 20, .08);
-    --radius: 14px;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
@@ -27,7 +28,7 @@
       --bg: #1f1e1c;
       --panel: #262523;
       --side: #191816;
-      --text: #ecEBE6;
+      --text: #ecebe6;
       --muted: #9b968b;
       --border: #3a3834;
       --accent: #d97757;
@@ -36,6 +37,8 @@
       --code: #161514;
       --ok: #6cbf86;
       --err: #e0806f;
+      --add: rgba(108, 191, 134, .14);
+      --del: rgba(224, 128, 111, .14);
       --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 30px rgba(0, 0, 0, .35);
       color-scheme: dark;
     }
@@ -44,7 +47,7 @@
     --bg: #1f1e1c;
     --panel: #262523;
     --side: #191816;
-    --text: #ecEBE6;
+    --text: #ecebe6;
     --muted: #9b968b;
     --border: #3a3834;
     --accent: #d97757;
@@ -53,6 +56,8 @@
     --code: #161514;
     --ok: #6cbf86;
     --err: #e0806f;
+    --add: rgba(108, 191, 134, .14);
+    --del: rgba(224, 128, 111, .14);
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 10px 30px rgba(0, 0, 0, .35);
     color-scheme: dark;
   }
@@ -69,18 +74,16 @@
   button, input, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
   .hidden { display: none !important; }
+  code, pre, .mono { font-family: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace; }
 
   .app { display: grid; grid-template-columns: 272px 1fr; height: 100vh; height: 100dvh; }
 
   /* ---------- barre latérale ---------- */
   .side {
-    background: var(--side);
-    border-right: 1px solid var(--border);
-    padding: 18px 16px;
-    display: flex; flex-direction: column; gap: 18px;
-    overflow-y: auto;
+    background: var(--side); border-right: 1px solid var(--border);
+    padding: 18px 16px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto;
   }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; letter-spacing: .1px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; }
   .mark {
     width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
     background: var(--accent); color: var(--accent-ink); font-size: 17px; line-height: 1;
@@ -98,21 +101,18 @@
   .conn label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
   .conn input {
     width: 100%; padding: 9px 10px; border-radius: 9px; border: 1px solid var(--border);
-    background: var(--panel); color: var(--text); outline: none;
+    background: var(--panel); color: var(--text); outline: none; font-size: 14px;
   }
+  .conn input:disabled { opacity: .7; }
   .conn input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
-  .btn-ghost {
-    padding: 8px 12px; border-radius: 9px; border: 1px solid var(--border);
-    background: transparent; font-weight: 550; font-size: 14px;
-  }
-  .btn-ghost:hover { background: var(--panel); }
   .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); min-height: 20px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
   .status.ok .dot { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
   .status.err .dot { background: var(--err); }
   .status.ok .txt { color: var(--text); }
-  .info { font-size: 12.5px; color: var(--muted); word-break: break-all; }
-  .side-foot { margin-top: auto; font-size: 12px; color: var(--muted); }
+  .status.err .txt { color: var(--err); }
+  .info { font-size: 12.5px; color: var(--muted); word-break: break-all; white-space: pre-line; }
+  .side-foot { margin-top: auto; font-size: 12px; color: var(--muted); line-height: 1.5; }
 
   /* ---------- zone principale ---------- */
   .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
@@ -128,13 +128,17 @@
   .top .title { font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pill {
     font-size: 12.5px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
-    color: var(--muted); display: none; align-items: center; gap: 6px;
+    color: var(--muted); display: none; align-items: center; gap: 7px; max-width: 46%;
   }
   .pill.on { display: inline-flex; }
-  .pill .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+  .pill #pillText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spin {
+    width: 11px; height: 11px; flex: none; border-radius: 50%;
+    border: 2px solid var(--accent); border-top-color: transparent; animation: spin .8s linear infinite;
+  }
 
-  .log { flex: 1; overflow-y: auto; padding: 28px 20px 12px; scroll-behavior: smooth; }
-  .thread { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+  .log { flex: 1; overflow-y: auto; padding: 28px 20px 12px; }
+  .thread { max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
 
   /* état vide */
   .empty { max-width: 760px; margin: 8vh auto 0; text-align: center; }
@@ -147,13 +151,13 @@
   .chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
   .chip {
     padding: 9px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel);
-    font-size: 14px; text-align: left; box-shadow: var(--shadow); transition: transform .08s, border-color .15s;
+    font-size: 14px; box-shadow: var(--shadow); transition: transform .08s, border-color .15s;
   }
   .chip:hover { border-color: var(--accent); }
   .chip:active { transform: scale(.98); }
 
   /* messages */
-  .msg { display: flex; gap: 12px; animation: rise .22s ease-out; }
+  .msg { display: flex; gap: 12px; animation: rise .22s ease-out; min-width: 0; }
   .msg.user { justify-content: flex-end; }
   .bubble {
     max-width: min(560px, 85%); background: var(--user); padding: 10px 16px; border-radius: 18px 18px 4px 18px;
@@ -163,16 +167,14 @@
     width: 26px; height: 26px; flex: none; border-radius: 8px; margin-top: 2px;
     display: grid; place-items: center; background: var(--accent); color: var(--accent-ink); font-size: 14px;
   }
+  .msg.live .avatar { animation: breathe 1.6s ease-in-out infinite; }
   .content { min-width: 0; flex: 1; }
   .content p { margin: 0 0 .75em; }
   .content p:last-child { margin-bottom: 0; }
   .content h3, .content h4, .content h5, .content h6 { margin: 1em 0 .4em; font-size: 16px; }
   .content ul, .content ol { margin: .2em 0 .75em; padding-left: 1.4em; }
   .content li { margin: .15em 0; }
-  .content code {
-    font-family: ui-monospace, "Cascadia Code", Consolas, Menlo, monospace; font-size: 13.5px;
-    background: var(--code); padding: 1px 6px; border-radius: 6px;
-  }
+  .content code { font-size: 13.5px; background: var(--code); padding: 1px 6px; border-radius: 6px; }
   .content pre {
     background: var(--code); border: 1px solid var(--border); border-radius: 10px;
     padding: 12px 14px; overflow-x: auto; margin: .6em 0 .9em;
@@ -180,50 +182,91 @@
   .content pre code { background: none; padding: 0; font-size: 13px; line-height: 1.5; }
   .content a { color: var(--accent); }
   .err-box {
-    border: 1px solid color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 10%, transparent);
-    color: var(--text); border-radius: 12px; padding: 10px 14px; font-size: 14px;
+    border: 1px solid color-mix(in srgb, var(--err) 45%, transparent);
+    background: color-mix(in srgb, var(--err) 10%, transparent);
+    border-radius: 12px; padding: 10px 14px; font-size: 14px;
   }
   .err-box strong { color: var(--err); }
-  .cancelled { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 6px; }
 
-  /* étapes (appels d'outils) */
-  .steps { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
-  .step {
-    border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 13.5px;
+  /* déroulé de l'agent : étapes, réflexion, outils */
+  .live-head {
+    display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px;
+    padding: 2px 0 10px; min-height: 26px;
   }
+  .live-head .phase { color: var(--text); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .live-head .elapsed { margin-left: auto; font-variant-numeric: tabular-nums; flex: none; }
+  .timeline { display: flex; flex-direction: column; gap: 8px; }
+  .seg-text { margin: 0; }
+  .seg-text:empty { display: none; }
+
+  .think { border-left: 2px solid var(--border); padding: 2px 0 2px 12px; color: var(--muted); }
+  .think summary { cursor: pointer; font-size: 13px; list-style: none; }
+  .think summary::-webkit-details-marker { display: none; }
+  .think summary::before { content: "▸ "; }
+  .think[open] summary::before { content: "▾ "; }
+  .think-body { white-space: pre-wrap; font-size: 13.5px; margin-top: 4px; max-height: 260px; overflow: auto; }
+
+  .step { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); font-size: 13.5px; min-width: 0; }
   .step summary {
     list-style: none; cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 8px; min-width: 0;
   }
   .step summary::-webkit-details-marker { display: none; }
-  .step summary::before { content: "▸"; color: var(--muted); transition: transform .15s; display: inline-block; }
+  .step summary::before { content: "▸"; color: var(--muted); transition: transform .15s; display: inline-block; flex: none; }
   .step[open] summary::before { transform: rotate(90deg); }
-  .step .tool { font-weight: 600; white-space: nowrap; }
-  .step .arg { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
-  .step .badge { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+  .step .tool { font-weight: 600; white-space: nowrap; flex: none; }
+  .step .arg {
+    color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+  }
+  .step .badge { margin-left: auto; width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; }
+  .step.running .badge {
+    background: transparent; border: 2px solid var(--accent); border-top-color: transparent; width: 11px; height: 11px;
+    animation: spin .8s linear infinite;
+  }
   .step.fail .badge { background: var(--err); }
-  .step .body { padding: 0 12px 10px; }
+  .step .body { padding: 0 12px 10px; min-width: 0; }
   .step pre {
     margin: 6px 0 0; padding: 10px; border-radius: 8px; background: var(--code);
-    font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; line-height: 1.45;
-    white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto;
+    font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto;
   }
   .step .label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px; }
 
-  /* attente */
-  .thinking { color: var(--muted); display: flex; align-items: center; gap: 10px; min-height: 26px; }
-  .dots { display: inline-flex; gap: 4px; }
-  .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite ease-in-out; }
-  .dots i:nth-child(2) { animation-delay: .15s; }
-  .dots i:nth-child(3) { animation-delay: .3s; }
+  .diff {
+    margin-top: 6px; border-radius: 8px; overflow: auto; max-height: 360px;
+    border: 1px solid var(--border); background: var(--code); font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+  }
+  .dl { display: grid; grid-template-columns: 48px 16px 1fr; white-space: pre; line-height: 1.5; }
+  .dl span { padding: 0 6px; }
+  .dl .dn { color: var(--muted); text-align: right; user-select: none; }
+  .dl .dk { color: var(--muted); user-select: none; }
+  .dl.add { background: var(--add); }
+  .dl.del { background: var(--del); }
+  .dl.add .dk { color: var(--ok); }
+  .dl.del .dk { color: var(--err); }
+  .dl .dt { overflow: hidden; text-overflow: ellipsis; }
+
+  .evlog { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+  .evlog summary { cursor: pointer; list-style: none; }
+  .evlog summary::-webkit-details-marker { display: none; }
+  .evlog summary::before { content: "▸ "; }
+  .evlog[open] summary::before { content: "▾ "; }
+  .evlog pre {
+    margin: 6px 0 0; padding: 10px; border-radius: 8px; background: var(--code); max-height: 220px; overflow: auto;
+    font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+  }
 
   /* zone de saisie */
   .composer { padding: 10px 20px 22px; background: linear-gradient(to bottom, transparent, var(--bg) 30%); }
   .box {
-    max-width: 760px; margin: 0 auto; background: var(--panel); border: 1px solid var(--border);
+    max-width: 780px; margin: 0 auto; background: var(--panel); border: 1px solid var(--border);
     border-radius: 18px; box-shadow: var(--shadow); padding: 12px 12px 10px;
     transition: border-color .15s, box-shadow .15s;
   }
-  .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow); }
+  .box:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow);
+  }
   textarea {
     width: 100%; border: 0; outline: none; background: transparent; resize: none;
     min-height: 26px; max-height: 220px; padding: 4px 6px; font-size: 15.5px; line-height: 1.5;
@@ -232,35 +275,36 @@
   .bar { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
   .hint { font-size: 12px; color: var(--muted); margin-right: auto; }
   .send, .stop {
-    height: 34px; padding: 0 14px; border-radius: 10px; border: 0; font-weight: 600; font-size: 14px;
+    height: 34px; padding: 0 14px; border-radius: 10px; font-weight: 600; font-size: 14px;
     display: inline-flex; align-items: center; gap: 6px; transition: opacity .15s, transform .05s;
   }
-  .send { background: var(--accent); color: var(--accent-ink); }
+  .send { background: var(--accent); color: var(--accent-ink); border: 0; }
   .send:disabled { opacity: .35; cursor: default; }
   .send:not(:disabled):active { transform: translateY(1px); }
   .stop { background: transparent; color: var(--text); border: 1px solid var(--border); }
   .stop:hover { background: var(--bg); }
 
-  /* ---------- petits écrans ---------- */
+  /* petits écrans */
   .scrim { display: none; }
   @media (max-width: 800px) {
     .app { grid-template-columns: 1fr; }
+    .icon-btn { display: inline-flex; }
     .side {
       position: fixed; z-index: 20; top: 0; bottom: 0; left: 0; width: 280px;
       transform: translateX(-102%); transition: transform .22s ease; box-shadow: var(--shadow);
     }
     .app.open .side { transform: none; }
     .app.open .scrim { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .25); z-index: 15; }
-    .icon-btn { display: inline-flex; }
     .log { padding: 20px 16px 10px; }
     .composer { padding: 8px 12px 16px; }
     .hint { display: none; }
     .bubble { max-width: 88%; }
+    .pill { max-width: 60%; }
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes blink { 0%, 80%, 100% { opacity: .25; transform: scale(.8); } 40% { opacity: 1; transform: scale(1); } }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -270,21 +314,18 @@
 
   <aside class="side" aria-label="Connection">
     <div class="brand"><span class="mark">✻</span> CodePortal</div>
-    <button class="newchat" id="newChat" type="button">
-      <span aria-hidden="true">+</span> New chat
-    </button>
+    <button class="newchat" id="newChat" type="button"><span aria-hidden="true">+</span> New chat</button>
 
     <div>
       <div class="section-title">Server</div>
-      <form class="conn" id="connForm">
+      <div class="conn">
         <label>Address
           <input id="url" type="url" placeholder="http://127.0.0.1:8765" autocomplete="off" spellcheck="false">
         </label>
         <label>Token
-          <input id="token" type="password" placeholder="contents of api.token" autocomplete="off" spellcheck="false">
+          <input id="token" type="password" placeholder="from the link CodePortal prints" autocomplete="off" spellcheck="false">
         </label>
-        <button class="btn-ghost" type="submit">Connect</button>
-      </form>
+      </div>
     </div>
 
     <div>
@@ -293,8 +334,8 @@
     </div>
 
     <div class="side-foot">
-      Start the server with <code>codeportal.exe --headless</code>.
-      For another computer, add <code>--bind 0.0.0.0</code> and use its address here.
+      Start CodePortal with <code>codeportal.exe --headless</code> and open the link it prints.
+      The page then connects by itself. For another computer, add <code>--bind 0.0.0.0</code>.
     </div>
   </aside>
 
@@ -304,14 +345,14 @@
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
       </button>
       <div class="title" id="title">New conversation</div>
-      <span class="pill" id="pill"><span class="spin"></span> Working</span>
+      <span class="pill" id="pill"><span class="spin"></span><span id="pillText">Working</span></span>
     </header>
 
     <section class="log" id="log" aria-live="polite">
       <div class="empty" id="empty">
         <div class="big-mark">✻</div>
         <h1>What should we work on?</h1>
-        <p>CodePortal reads and edits files in its working folder, and runs commands for you.</p>
+        <p>CodePortal reads and edits files in its working folder, and runs commands for you.<br>You'll see every step as it happens.</p>
         <div class="chips" id="chips">
           <button class="chip" type="button" data-q="Give me an overview of this project and its folder structure.">Overview of this project</button>
           <button class="chip" type="button" data-q="List the files in the working folder and tell me what each one is for.">List the files</button>
@@ -339,7 +380,7 @@
 (() => {
   "use strict";
 
-  // ---------- stockage local (préférences et conversation affichée, jamais requis) ----------
+  // ---------- stockage local : préférences et conversation affichée. Jamais indispensable. ----------
   const store = {
     get(key, fallback) {
       try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; }
@@ -350,24 +391,40 @@
 
   const $ = (id) => document.getElementById(id);
   const els = {
-    app: $("app"), scrim: $("scrim"), menu: $("menu"), url: $("url"), token: $("token"), connForm: $("connForm"),
-    status: $("status"), info: $("info"), newChat: $("newChat"), log: $("log"), empty: $("empty"), thread: $("thread"),
-    chips: $("chips"), title: $("title"), pill: $("pill"), composer: $("composer"), input: $("input"),
-    send: $("send"), stop: $("stop"),
+    app: $("app"), scrim: $("scrim"), menu: $("menu"), url: $("url"), token: $("token"),
+    status: $("status"), info: $("info"), newChat: $("newChat"), log: $("log"), empty: $("empty"),
+    thread: $("thread"), chips: $("chips"), title: $("title"), pill: $("pill"), pillText: $("pillText"),
+    composer: $("composer"), input: $("input"), send: $("send"), stop: $("stop"),
   };
 
   const DEFAULT_URL = "http://127.0.0.1:8765";
   const MAX_SAVED = 200;
+  // Servie par CodePortal lui-même : même adresse que le serveur, rien à configurer.
+  const SERVED = /^https?:$/.test(location.protocol);
   const TOOL_TITLES = {
     read_file: "Read", list_dir: "List", create_file: "Create", write_file: "Write", edit_file: "Update",
     delete_file: "Delete", create_dir: "Mkdir", run_command: "Bash", context: "Context", get_context: "Context",
   };
+  const FAILED_RESULT = /^(Error:|Not executed|Invalid|Unknown tool|Cannot|File not found|The <old>)/;
 
-  const conn = { url: store.get("cp.url", DEFAULT_URL), token: store.get("cp.token", "") };
+  // Le lien imprimé par CodePortal contient le jeton dans le fragment : on le garde, puis on l'enlève de la barre.
+  const fromLink = /(?:^|[#&])token=([^&]+)/.exec(location.hash);
+  if (fromLink) {
+    store.set("cp.token", decodeURIComponent(fromLink[1]));
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+  const conn = {
+    url: SERVED ? location.origin : store.get("cp.url", DEFAULT_URL),
+    token: fromLink ? decodeURIComponent(fromLink[1]) : store.get("cp.token", ""),
+  };
+
   let transcript = loadTranscript();
-  let busy = false;
-  let turnTimer = null;
-  let turnStarted = 0;
+  let live = null;        // tour en cours : { owner, started, segs, node, segsBox, phase, log, timer }
+  let cursor = null;      // dernier numéro d'événement lu ; null = pas encore synchronisé
+  let stickBottom = true; // on suit le bas de la conversation tant que l'utilisateur ne remonte pas
+  let lastStatusAt = 0;
+  const dirty = new Set();
+  let flushQueued = false;
 
   function loadTranscript() {
     try {
@@ -378,6 +435,7 @@
   function saveTranscript() {
     store.set("cp.log", JSON.stringify(transcript.slice(-MAX_SAVED)));
   }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---------- Markdown minimal : tout est échappé avant d'être transformé ----------
   function esc(s) {
@@ -432,14 +490,13 @@
     return out.join("");
   }
 
-  // ---------- rendu des messages (uniquement avec textContent ou renderMarkdown) ----------
+  // ---------- construction des éléments (textContent partout, sauf le Markdown échappé) ----------
   function el(tag, cls, text) {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
     if (text !== undefined) n.textContent = text;
     return n;
   }
-
   function firstArg(argsText) {
     try {
       const o = JSON.parse(argsText || "{}");
@@ -448,22 +505,72 @@
       return first || "";
     } catch (e) { return argsText || ""; }
   }
+  function prettyArgs(argsText) {
+    try { return JSON.stringify(JSON.parse(argsText || "{}"), null, 2); } catch (e) { return argsText || "{}"; }
+  }
+  function diffNode(lines) {
+    const box = el("div", "diff");
+    lines.forEach((l) => {
+      const kind = l.k === "+" ? "add" : l.k === "-" ? "del" : "ctx";
+      const row = el("div", "dl " + kind);
+      row.append(el("span", "dn", String(l.n)), el("span", "dk", l.k === "+" || l.k === "-" ? l.k : " "), el("span", "dt", l.t));
+      box.appendChild(row);
+    });
+    return box;
+  }
+  function label(text) { return el("div", "label", text); }
 
-  function stepNode(step) {
-    const failed = /^(Error:|Not executed|Invalid|Unknown tool|Cannot|File not found|The <old>)/.test(step.result || "");
-    const d = el("details", "step" + (failed ? " fail" : ""));
+  // Un outil : la carte reste la même pendant qu'elle se remplit, pour garder son état ouvert ou fermé.
+  function updateTool(seg, node) {
+    node.className = "step " + (seg.status === "running" ? "running" : "done") + (seg.ok === false ? " fail" : "");
+    node.querySelector(".tool").textContent = TOOL_TITLES[seg.tool] || seg.tool;
+    node.querySelector(".arg").textContent = firstArg(seg.args);
+    const body = node.querySelector(".body");
+    body.replaceChildren();
+    body.appendChild(label("Input"));
+    body.appendChild(el("pre", null, prettyArgs(seg.args)));
+    if (seg.diff && seg.diff.length) {
+      body.appendChild(label("Changes"));
+      body.appendChild(diffNode(seg.diff));
+    }
+    if (seg.result !== undefined) {
+      body.appendChild(label("Result"));
+      body.appendChild(el("pre", null, seg.result || "(no output)"));
+    }
+  }
+
+  function buildSeg(seg) {
+    if (seg.kind === "text") {
+      const n = el("div", "seg-text");
+      n.innerHTML = renderMarkdown(seg.text);
+      return n;
+    }
+    if (seg.kind === "thinking") {
+      const d = el("details", "think");
+      d.appendChild(el("summary", null, "Thinking"));
+      d.appendChild(el("div", "think-body", seg.text));
+      return d;
+    }
+    const d = el("details", "step");
     const s = el("summary");
-    s.appendChild(el("span", "tool", TOOL_TITLES[step.tool] || step.tool));
-    s.appendChild(el("span", "arg", firstArg(step.args)));
-    s.appendChild(el("span", "badge"));
-    d.appendChild(s);
-    const body = el("div", "body");
-    body.appendChild(el("div", "label", "Input"));
-    body.appendChild(el("pre", null, step.args || "{}"));
-    body.appendChild(el("div", "label", "Result"));
-    body.appendChild(el("pre", null, step.result || "(no output)"));
-    d.appendChild(body);
+    s.append(el("span", "tool"), el("span", "arg"), el("span", "badge"));
+    d.append(s, el("div", "body"));
+    updateTool(seg, d);
     return d;
+  }
+  function updateSegNode(seg) {
+    if (!seg.node) return;
+    if (seg.kind === "text") seg.node.innerHTML = renderMarkdown(seg.text);
+    else if (seg.kind === "thinking") seg.node.querySelector(".think-body").textContent = seg.text;
+    else updateTool(seg, seg.node);
+  }
+
+  // Étapes d'une réponse sans journal d'événements (ancien serveur) : même affichage.
+  function stepsToSegs(steps) {
+    return steps.map((s) => ({
+      kind: "tool", id: "", tool: s.tool, args: s.args, status: "done",
+      ok: !FAILED_RESULT.test(s.result || ""), diff: [], result: s.result,
+    }));
   }
 
   function messageNode(m) {
@@ -487,27 +594,23 @@
     const row = el("div", "msg");
     row.appendChild(el("div", "avatar", "✻"));
     const content = el("div", "content");
-    if (m.steps && m.steps.length) {
-      const steps = el("div", "steps");
-      m.steps.forEach((s) => steps.appendChild(stepNode(s)));
-      content.appendChild(steps);
+    const timeline = el("div", "timeline");
+    const segs = m.segs && m.segs.length ? m.segs : stepsToSegs(m.steps || []);
+    segs.forEach((s) => timeline.appendChild(buildSeg(s)));
+    const hasText = segs.some((s) => s.kind === "text" && s.text.trim());
+    if (m.text && !hasText) {
+      const t = el("div", "seg-text");
+      t.innerHTML = renderMarkdown(m.text);
+      timeline.appendChild(t);
     }
-    const body = el("div");
-    body.innerHTML = renderMarkdown(m.text);
-    content.appendChild(body);
-    if (m.cancelled) content.appendChild(el("div", "cancelled", "Stopped before the end."));
+    content.appendChild(timeline);
+    if (m.cancelled) content.appendChild(el("div", "note", "Stopped before the end."));
     row.appendChild(content);
     return row;
   }
 
-  function showThread() {
-    els.empty.classList.add("hidden");
-    els.thread.classList.remove("hidden");
-  }
-  function showEmpty() {
-    els.thread.classList.add("hidden");
-    els.empty.classList.remove("hidden");
-  }
+  function showThread() { els.empty.classList.add("hidden"); els.thread.classList.remove("hidden"); }
+  function showEmpty() { els.thread.classList.add("hidden"); els.empty.classList.remove("hidden"); }
 
   function push(m) {
     transcript.push(m);
@@ -517,47 +620,44 @@
     scrollDown();
     updateTitle();
   }
-
-  function scrollDown() {
+  function scrollDown(force) {
+    if (!force && !stickBottom) return;
     requestAnimationFrame(() => { els.log.scrollTop = els.log.scrollHeight; });
   }
-
   function updateTitle() {
     const first = transcript.find((m) => m.role === "user");
     els.title.textContent = first ? first.text.replace(/\s+/g, " ").slice(0, 80) : "New conversation";
   }
-
   function renderAll() {
-    els.thread.innerHTML = "";
+    els.thread.replaceChildren();
     if (!transcript.length) { showEmpty(); updateTitle(); return; }
     showThread();
     transcript.forEach((m) => els.thread.appendChild(messageNode(m)));
     updateTitle();
-    scrollDown();
+    scrollDown(true);
   }
 
   // ---------- connexion à l'API ----------
   function baseUrl() { return conn.url.trim().replace(/\/+$/, ""); }
 
   async function api(path, opts = {}) {
-    if (!baseUrl()) throw new Error("Enter the server address first.");
-    if (!conn.token) throw new Error("Enter the token from api.token first.");
+    if (!baseUrl()) throw new Error("No server address.");
+    if (!conn.token) throw new Error("No token yet: open the link printed by CodePortal.");
     let res;
     try {
       res = await fetch(baseUrl() + path, {
         method: opts.method || "GET",
-        headers: Object.assign({ Authorization: "Bearer " + conn.token },
-          opts.body ? { "Content-Type": "application/json" } : {}),
+        headers: Object.assign({ Authorization: "Bearer " + conn.token }, opts.body ? { "Content-Type": "application/json" } : {}),
         body: opts.body ? JSON.stringify(opts.body) : undefined,
       });
     } catch (e) {
-      throw new Error("Cannot reach " + baseUrl() + ". Is codeportal --headless running?");
+      throw new Error("Cannot reach " + baseUrl() + ". Is CodePortal running in headless mode?");
     }
     let data = {};
     try { data = await res.json(); } catch (e) { /* réponse sans JSON */ }
     // Une réponse « ask » sans réponse du modèle porte quand même les étapes et le journal.
     if (!res.ok && !(data && data.steps)) {
-      if (res.status === 401) throw new Error("The token was refused. Check the token in api.token.");
+      if (res.status === 401) throw new Error("The token was refused. Use the link printed by CodePortal.");
       throw new Error(data.error || ("HTTP " + res.status));
     }
     return data;
@@ -569,10 +669,11 @@
   }
 
   async function refreshStatus() {
-    if (!conn.token) { setStatus("", "Not connected"); els.info.textContent = ""; return null; }
+    lastStatusAt = Date.now();
+    if (!conn.token) { setStatus("", "Waiting for the token"); els.info.textContent = ""; return null; }
     try {
       const s = await api("/api/v1/status");
-      setStatus("ok", "Connected" + (s.busy ? " · working" : ""));
+      setStatus("ok", "Connected");
       els.info.textContent = [s.provider, s.model].filter(Boolean).join(" · ") + (s.cwd ? "\n" + s.cwd : "");
       return s;
     } catch (e) {
@@ -582,64 +683,222 @@
     }
   }
 
-  // ---------- état « en train de travailler » ----------
+  // ---------- événements : ce que fait l'agent, au fil de l'eau ----------
+  function setPhase(text) {
+    if (live) live.phase.textContent = text;
+    els.pillText.textContent = text;
+  }
+
   function setBusy(on) {
-    busy = on;
-    els.send.disabled = on || !els.input.value.trim();
     els.stop.classList.toggle("hidden", !on);
     els.pill.classList.toggle("on", on);
-    if (on) {
-      turnStarted = Date.now();
-      turnTimer = setInterval(() => {
-        const label = document.getElementById("elapsed");
-        if (label) label.textContent = Math.floor((Date.now() - turnStarted) / 1000) + "s";
-      }, 500);
-    } else {
-      clearInterval(turnTimer);
+    els.send.disabled = on || !els.input.value.trim();
+    if (!on) els.pillText.textContent = "Working";
+  }
+
+  function startLive(owner) {
+    if (live) return;
+    const node = el("div", "msg live");
+    node.appendChild(el("div", "avatar", "✻"));
+    const content = el("div", "content");
+    const head = el("div", "live-head");
+    const phase = el("span", "phase", "Starting…");
+    const elapsed = el("span", "elapsed", "0s");
+    head.append(el("span", "spin"), phase, elapsed);
+    const segsBox = el("div", "timeline");
+    const logDetails = el("details", "evlog");
+    logDetails.appendChild(el("summary", null, "Event log"));
+    const logPre = el("pre");
+    logDetails.appendChild(logPre);
+    content.append(head, segsBox, logDetails);
+    node.appendChild(content);
+    showThread();
+    els.thread.appendChild(node);
+
+    const started = Date.now();
+    live = {
+      owner, node, segsBox, phase, logPre, segs: [], log: [], logDirty: false,
+      timer: setInterval(() => {
+        elapsed.textContent = Math.floor((Date.now() - started) / 1000) + "s";
+      }, 500),
+    };
+    setBusy(true);
+    setPhase("Starting…");
+    stickBottom = true;
+    scrollDown();
+  }
+
+  function attachSeg(seg) {
+    seg.node = buildSeg(seg);
+    live.segsBox.appendChild(seg.node);
+    live.segs.push(seg);
+  }
+  function scheduleFlush() {
+    if (flushQueued) return;
+    flushQueued = true;
+    requestAnimationFrame(flush);
+  }
+  function markDirty(seg) {
+    dirty.add(seg);
+    scheduleFlush();
+  }
+  // Le texte qui arrive est redessiné une fois par image, pas une fois par morceau.
+  function flush() {
+    flushQueued = false;
+    dirty.forEach(updateSegNode);
+    dirty.clear();
+    if (live && live.logDirty) {
+      live.logPre.textContent = live.log.slice(-200).join("\n");
+      live.logDirty = false;
+    }
+    scrollDown();
+  }
+
+  function liveAppend(kind, delta) {
+    let seg = live.segs[live.segs.length - 1];
+    if (!seg || seg.kind !== kind) {
+      seg = { kind, text: "" };
+      attachSeg(seg);
+    }
+    seg.text += delta;
+    markDirty(seg);
+  }
+
+  function logLine(ev) {
+    if (!live) return;
+    const time = new Date().toLocaleTimeString([], { hour12: false });
+    const d = ev.data || {};
+    let brief = "";
+    if (ev.type === "tool_start" || ev.type === "tool_end") brief = (d.tool || "") + " " + firstArg(d.args || "") + (ev.type === "tool_end" ? " → " + (d.ok ? "ok" : "failed") : "");
+    else if (ev.type === "text" || ev.type === "thinking") brief = JSON.stringify(String(d.delta || "").slice(0, 60));
+    else if (ev.type === "model") brief = "step " + d.step;
+    else if (ev.type === "turn_end") brief = d.cancelled ? "stopped" : (d.error || "done");
+    else if (ev.type === "turn_start") brief = JSON.stringify(String(d.message || "").slice(0, 60));
+    live.log.push(time + "  " + ev.type.padEnd(10) + " " + brief);
+    live.logDirty = true;
+    scheduleFlush();
+  }
+
+  function handleEvent(ev) {
+    const d = ev.data || {};
+    if (ev.type === "turn_start") {
+      if (!live) startLive("poll");
+      logLine(ev);
+      return;
+    }
+    if (!live) return;
+    logLine(ev);
+    switch (ev.type) {
+      case "model":
+        setPhase("Thinking…");
+        break;
+      case "thinking":
+        liveAppend("thinking", d.delta || "");
+        setPhase("Thinking…");
+        break;
+      case "text":
+        liveAppend("text", d.delta || "");
+        setPhase("Writing the answer…");
+        break;
+      case "tool_start": {
+        const seg = { kind: "tool", id: d.id, tool: d.tool, args: d.args || "{}", status: "running", ok: true, diff: [] };
+        attachSeg(seg);
+        setPhase("Running " + (TOOL_TITLES[d.tool] || d.tool) + " " + firstArg(d.args || ""));
+        break;
+      }
+      case "tool_end": {
+        const seg = live.segs.slice().reverse().find((s) => s.kind === "tool" && s.id === d.id);
+        if (seg) {
+          seg.status = "done";
+          seg.ok = !!d.ok;
+          seg.diff = d.diff || [];
+          seg.result = d.result || "";
+          updateTool(seg, seg.node);
+        }
+        setPhase("Working…");
+        break;
+      }
+      case "turn_end":
+        if (live.owner === "poll") {
+          finishLive({ answer: d.answer, cancelled: d.cancelled, error: d.error || "" });
+        }
+        break;
+      default:
+        break;
+    }
+    scrollDown();
+  }
+
+  // Fin du tour : le déroulé devient un message ordinaire, gardé dans la conversation.
+  function finishLive(opt) {
+    if (!live) return;
+    const L = live;
+    live = null;
+    clearInterval(L.timer);
+    dirty.clear();
+    // Sans journal d'événements (ancien serveur), on prend les étapes de la réponse.
+    const segs = L.segs.length ? L.segs.map(({ node, ...rest }) => rest) : stepsToSegs(opt.steps || []);
+    L.node.remove();
+    if (segs.length || opt.answer) {
+      push({ role: "assistant", text: opt.answer || "", segs, cancelled: !!opt.cancelled });
+    }
+    if (opt.error && !opt.answer) push({ role: "error", text: opt.error, log: opt.log });
+    setBusy(false);
+    refreshStatus();
+  }
+
+  // Lecture continue du journal, pour suivre l'agent même si la page a été rechargée en plein tour.
+  function syncStart(r) {
+    // Un tour déjà terminé est dans la conversation : on ne le rejoue pas.
+    if (live || r.events.some((e) => e.type === "turn_end")) return;
+    r.events.forEach(handleEvent);
+  }
+
+  async function pollLoop() {
+    for (;;) {
+      if (!conn.token) { await sleep(1000); continue; }
+      try {
+        const first = cursor === null;
+        const r = await api(first ? "/api/v1/events" : "/api/v1/events?after=" + cursor);
+        if (first) syncStart(r);
+        else if (r.next < cursor) {  // le serveur a redémarré : on repart à zéro
+          if (live) finishLive({ answer: "", error: "The server restarted during this turn." });
+          cursor = null;
+          continue;
+        } else r.events.forEach(handleEvent);
+        cursor = r.next;
+        if (!live && !r.busy && Date.now() - lastStatusAt > 6000) refreshStatus();
+        if (!live && !r.busy) setStatus("ok", "Connected");
+        await sleep(live || r.busy || r.events.length ? 300 : 1500);
+      } catch (e) {
+        cursor = null;
+        if (live) finishLive({ answer: "", error: e.message });
+        setStatus("err", e.message);
+        await sleep(2500);
+      }
     }
   }
 
-  function thinkingNode() {
-    const row = el("div", "msg");
-    row.id = "thinking";
-    row.appendChild(el("div", "avatar", "✻"));
-    const content = el("div", "content thinking");
-    const dots = el("span", "dots");
-    for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
-    content.appendChild(dots);
-    content.appendChild(el("span", null, "Working…"));
-    const t = el("span", null, "");
-    t.id = "elapsed";
-    t.style.marginLeft = "4px";
-    content.appendChild(t);
-    row.appendChild(content);
-    return row;
-  }
-
-  // ---------- envoi ----------
+  // ---------- actions ----------
   async function send(text) {
     text = text.trim();
-    if (!text || busy) return;
-    if (!conn.token) { openSidebar(); push({ role: "error", text: "Connect to the server first (token in the side panel)." }); return; }
+    if (!text || live) return;
+    if (!conn.token) {
+      push({ role: "error", text: "No token yet. Open the link printed by CodePortal, or paste the token in the side panel." });
+      return;
+    }
     els.input.value = "";
     autosize();
     push({ role: "user", text });
-    setBusy(true);
-    const waiting = thinkingNode();
-    showThread();
-    els.thread.appendChild(waiting);
-    scrollDown();
+    startLive("send");
     try {
       const r = await api("/api/v1/ask", { method: "POST", body: { message: text } });
-      waiting.remove();
-      if (!r.answer) push({ role: "error", text: r.error || "No answer from the model.", log: r.log });
-      else push({ role: "assistant", text: r.answer, steps: r.steps || [], cancelled: !!r.cancelled });
+      finishLive({
+        answer: r.answer, cancelled: r.cancelled, steps: r.steps,
+        error: r.answer ? "" : (r.error || "No answer from the model."), log: r.log,
+      });
     } catch (e) {
-      waiting.remove();
-      push({ role: "error", text: e.message });
-    } finally {
-      setBusy(false);
-      refreshStatus();
+      finishLive({ answer: "", error: e.message });
     }
   }
 
@@ -648,7 +907,7 @@
   }
 
   async function newChat() {
-    if (busy) return;
+    if (live) return;
     try {
       if (conn.token) await api("/api/v1/reset", { method: "POST" });
     } catch (e) {
@@ -665,7 +924,7 @@
   function autosize() {
     els.input.style.height = "auto";
     els.input.style.height = Math.min(els.input.scrollHeight, 220) + "px";
-    if (!busy) els.send.disabled = !els.input.value.trim();
+    els.send.disabled = !!live || !els.input.value.trim();
   }
   function openSidebar() { els.app.classList.add("open"); }
   function closeSidebar() { els.app.classList.remove("open"); }
@@ -680,32 +939,44 @@
   els.composer.addEventListener("submit", (e) => { e.preventDefault(); send(els.input.value); });
   els.stop.addEventListener("click", stop);
   els.newChat.addEventListener("click", newChat);
-  els.menu.addEventListener("click", () => els.app.classList.contains("open") ? closeSidebar() : openSidebar());
+  els.menu.addEventListener("click", () => (els.app.classList.contains("open") ? closeSidebar() : openSidebar()));
   els.scrim.addEventListener("click", closeSidebar);
+  els.log.addEventListener("scroll", () => {
+    stickBottom = els.log.scrollHeight - els.log.scrollTop - els.log.clientHeight < 80;
+  });
   els.chips.addEventListener("click", (e) => {
     const chip = e.target.closest(".chip");
-    if (!chip) return;
-    els.input.value = chip.dataset.q;
-    autosize();
-    send(chip.dataset.q);
+    if (chip) send(chip.dataset.q);
   });
 
-  els.connForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    conn.url = els.url.value.trim() || DEFAULT_URL;
-    conn.token = els.token.value.trim();
-    store.set("cp.url", conn.url);
-    store.set("cp.token", conn.token);
-    els.url.value = conn.url;
-    refreshStatus();
-  });
+  // Les réglages se appliquent tout seuls, sans bouton.
+  let settingsTimer = null;
+  function onSettingsInput() {
+    clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(() => {
+      if (!SERVED) conn.url = els.url.value.trim() || DEFAULT_URL;
+      conn.token = els.token.value.trim();
+      store.set("cp.url", conn.url);
+      store.set("cp.token", conn.token);
+      cursor = null;
+      refreshStatus();
+    }, 500);
+  }
+  els.url.addEventListener("input", onSettingsInput);
+  els.token.addEventListener("input", onSettingsInput);
 
   // ---------- démarrage ----------
-  els.url.value = conn.url;
+  if (SERVED) {
+    els.url.value = location.origin;
+    els.url.disabled = true;
+  } else {
+    els.url.value = conn.url;
+  }
   els.token.value = conn.token;
   renderAll();
   autosize();
   refreshStatus();
+  pollLoop();
   els.input.focus();
 })();
 </script>

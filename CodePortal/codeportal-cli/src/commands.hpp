@@ -833,6 +833,15 @@ std::string executeCall(const Call& call, bool fromAgent) {
     return r.summary;
 }
 
+// Diff en JSON pour le journal d'activité : [{"k":"+","n":12,"t":"texte"}, ...]
+std::string diffJson(const std::vector<DiffLine>& diff) {
+    std::string o = "[";
+    for (size_t i = 0; i < diff.size() && i < 300; ++i)
+        o += std::string(i ? "," : "") + "{\"k\":" + jsonStr(std::string(1, diff[i].kind)) +
+             ",\"n\":" + std::to_string(diff[i].lineNo) + ",\"t\":" + jsonStr(diff[i].text) + "}";
+    return o + "]";
+}
+
 // Exécute un appel d'outil natif de l'assistant (arguments JSON). Retourne le résultat pour le modèle.
 // Puce grise + spinner pendant l'exécution (Échap pour arrêter), puis verte ou rouge.
 std::string executeAgentTool(const ToolCallRec& tc) {
@@ -848,6 +857,7 @@ std::string executeAgentTool(const ToolCallRec& tc) {
     const std::string command = str("command");
     const std::string title = tc.name == "run_command" ? "Bash(" + command + ")" : toolTitle(tc.name, {str("path")});
     printToolCall(title, ToolState::Pending);
+    activity("tool_start", "{\"id\":" + jsonStr(tc.id) + ",\"tool\":" + jsonStr(tc.name) + ",\"args\":" + jsonStr(tc.args) + "}");
 
     ToolResult r;
     {
@@ -883,5 +893,9 @@ std::string executeAgentTool(const ToolCallRec& tc) {
 
     std::string forModel = (r.ok ? "" : "Error: ") + r.summary;
     if (!r.output.empty()) forModel += (forModel.empty() ? "" : "\n") + r.output;
-    return forModel.empty() ? "Done." : forModel;
+    if (forModel.empty()) forModel = "Done.";
+    activity("tool_end", "{\"id\":" + jsonStr(tc.id) + ",\"tool\":" + jsonStr(tc.name) + ",\"ok\":" +
+                             std::string(r.ok ? "true" : "false") + ",\"summary\":" + jsonStr(r.summary) +
+                             ",\"diff\":" + diffJson(r.diff) + ",\"result\":" + jsonStr(truncate(forModel, 4000)) + "}");
+    return forModel;
 }

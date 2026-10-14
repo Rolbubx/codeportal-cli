@@ -3,14 +3,15 @@
 //   codeportal.exe --headless [--port 8765] [--bind 127.0.0.1]
 //
 // Pas d'interface : le programme écoute sur 127.0.0.1 par défaut et répond en JSON.
+//   GET  /                                    la page de chat (web/codeportal-chat.html), sans jeton
 //   GET  /api/v1/status                       fournisseur, modèle, dossier, occupé ou non
 //   POST /api/v1/ask      {"message": "..."}  pose une question ; l'agent peut lire et modifier les fichiers
+//   GET  /api/v1/events?after=N               ce que fait l'agent, en direct : événements numérotés après N
 //   POST /api/v1/cancel                       arrête le tour en cours
 //   POST /api/v1/reset                        efface la conversation
-// Chaque requête porte « Authorization: Bearer <jeton> ». Le jeton est créé au premier lancement dans
-// api.token, à côté de config.ini. Un seul tour à la fois : un ask pendant un autre tour reçoit 409.
-//
-// La page web web/codeportal-chat.html s'y connecte ; --bind 0.0.0.0 la rend joignable depuis le réseau.
+// Les routes /api/v1/* exigent « Authorization: Bearer <jeton> ». Le jeton est créé au premier lancement
+// dans api.token, à côté de config.ini. Un seul tour à la fois : un ask pendant un autre tour reçoit 409.
+// Au démarrage, le lien à ouvrir (le jeton est mis dans le fragment #token=...) est affiché.
 //
 // Attention : le jeton donne à l'agent le droit de modifier des fichiers et d'exécuter des commandes
 // dans le dossier de travail. Par défaut le serveur n'écoute que sur la boucle locale.
@@ -20,6 +21,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdint>
+#include <deque>
 #include <fstream>
 #include <mutex>
 #include <random>
@@ -32,9 +34,28 @@
 namespace api {
 
 constexpr size_t kMaxRequestBytes = 1 << 20;  // 1 Mo
-inline std::mutex turnMu;                     // un seul tour à la fois
+constexpr size_t kMaxEvents = 5000;           // événements gardés en mémoire
+constexpr size_t kMaxEventsPerPoll = 500;
+
+inline std::mutex turnMu;  // un seul tour à la fois
 inline std::atomic<bool> busy{false};
 inline std::string token;
+
+// Journal des événements : numérotés, pour que le client demande « tout ce qui suit N ».
+struct Event {
+    unsigned long long seq;
+    std::string type;
+    std::string data;  // objet JSON
+};
+inline std::mutex evMu;
+inline std::deque<Event> events;
+inline unsigned long long nextSeq = 0;
+
+void record(const std::string& type, const std::string& data) {
+    std::lock_guard<std::mutex> lk(evMu);
+    events.push_back({++nextSeq, type, data});
+    if (events.size() > kMaxEvents) events.pop_front();
+}
 
 std::string tokenPath() { return g.configDir + "\\api.token"; }
 
@@ -149,14 +170,14 @@ bool readRequest(SOCKET s, Request& req) {
     return true;
 }
 
-// Réponse JSON. CORS : une page web (web/codeportal-chat.html) peut appeler l'API. Le jeton reste
-// obligatoire, et une page web ne peut pas le lire.
-void reply(SOCKET s, int code, const char* reason, const std::string& json) {
-    const std::string out = "HTTP/1.1 " + std::to_string(code) + " " + reason +
-                            "\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " +
-                            std::to_string(json.size()) +
+// Réponse. CORS : une page web peut appeler l'API ; le jeton reste obligatoire.
+void reply(SOCKET s, int code, const char* reason, const std::string& body,
+           const char* type = "application/json; charset=utf-8") {
+    const std::string out = "HTTP/1.1 " + std::to_string(code) + " " + reason + "\r\nContent-Type: " + type +
+                            "\r\nContent-Length: " + std::to_string(body.size()) +
                             "\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Authorization, Content-Type"
-                            "\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nConnection: close\r\n\r\n" + json;
+                            "\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nCache-Control: no-store"
+                            "\r\nConnection: close\r\n\r\n" + body;
     size_t sent = 0;
     while (sent < out.size()) {
         const int n = send(s, out.data() + sent, (int)(out.size() - sent), 0);
@@ -166,6 +187,17 @@ void reply(SOCKET s, int code, const char* reason, const std::string& json) {
 }
 
 std::string errorJson(const std::string& msg) { return "{\"ok\":false,\"error\":" + jsonStr(msg) + "}"; }
+
+// Page de chat : web/codeportal-chat.html, dans le dossier parent de build\ ou dans build\web.
+// Lue à chaque requête : une modification de la page est visible sans recompiler.
+bool readPage(std::string& html) {
+    wchar_t exe[MAX_PATH];
+    if (!GetModuleFileNameW(nullptr, exe, MAX_PATH)) return false;
+    const fs::path dir = fs::path(exe).parent_path();
+    for (const fs::path& p : {dir / ".." / "web" / "codeportal-chat.html", dir / "web" / "codeportal-chat.html"})
+        if (readText(p, html)) return true;
+    return false;
+}
 
 // Appels d'outils faits pendant le tour, dans l'ordre, avec leur résultat.
 std::string stepsJson(size_t from) {
@@ -214,6 +246,40 @@ void handleStatus(SOCKET s) {
               "}");
 }
 
+unsigned long long afterFrom(const std::string& query);
+
+// Événements après le numéro `after`. `next` est le dernier numéro renvoyé : le client repart de là.
+// Sans « after= » (première synchronisation d'une page), on commence au dernier tour, pour qu'une page
+// rechargée pendant un tour retrouve ce qui se passe.
+void handleEvents(SOCKET s, const std::string& query) {
+    std::lock_guard<std::mutex> lk(evMu);
+    unsigned long long after = 0;
+    if (query.find("after=") != std::string::npos) {
+        after = afterFrom(query);
+    } else {
+        for (auto it = events.rbegin(); it != events.rend(); ++it)
+            if (it->type == "turn_start") {
+                after = it->seq - 1;
+                break;
+            }
+    }
+    std::string list;
+    unsigned long long next = nextSeq;
+    size_t sent = 0;
+    for (const auto& e : events) {
+        if (e.seq <= after) continue;
+        if (sent == kMaxEventsPerPoll) break;
+        list += std::string(sent ? "," : "") + "{\"seq\":" + std::to_string(e.seq) + ",\"type\":" + jsonStr(e.type) +
+                ",\"data\":" + e.data + "}";
+        next = e.seq;
+        ++sent;
+    }
+    const bool gap = after > 0 && !events.empty() && events.front().seq > after + 1;
+    reply(s, 200, "OK",
+          "{\"ok\":true,\"busy\":" + std::string(busy ? "true" : "false") + ",\"next\":" + std::to_string(next) +
+              ",\"gap\":" + (gap ? "true" : "false") + ",\"events\":[" + list + "]}");
+}
+
 void handleAsk(SOCKET s, const std::string& body) {
     JVal v;
     JsonParser parser(body);
@@ -227,11 +293,13 @@ void handleAsk(SOCKET s, const std::string& body) {
     const std::string message = field->str;
     LiveView::get().clearCancel();
     busy = true;
+    activity("turn_start", "{\"message\":" + jsonStr(message) + "}");
     std::string console;
     try {
         console = captureOutput([&] { chat(message); });  // l'affichage part dans le vide : seul le résultat compte
     } catch (...) {
         busy = false;
+        activity("turn_end", "{\"answer\":\"\",\"cancelled\":false,\"error\":\"the turn failed\"}");
         return reply(s, 500, "Internal Server Error", errorJson("the turn failed"));
     }
     busy = false;
@@ -239,6 +307,9 @@ void handleAsk(SOCKET s, const std::string& body) {
     const bool cancelled = LiveView::get().cancelRequested();
     const size_t from = turnStart(message);
     const std::string answer = lastAnswer(from);
+    activity("turn_end", "{\"answer\":" + jsonStr(answer) + ",\"cancelled\":" + (cancelled ? "true" : "false") +
+                             ",\"error\":" + jsonStr(answer.empty() ? "no answer from the model" : "") + "}");
+
     std::string json = "{\"ok\":" + std::string(answer.empty() ? "false" : "true") + ",\"answer\":" + jsonStr(answer) +
                        ",\"cancelled\":" + (cancelled ? "true" : "false") + ",\"steps\":" + stepsJson(from);
     if (answer.empty()) {  // rien de la part du modèle : on renvoie ce qui a été affiché (ex. « No API key »)
@@ -261,6 +332,17 @@ void handleReset(SOCKET s) {
     reply(s, 200, "OK", "{\"ok\":true}");
 }
 
+// « after=N » dans la chaîne de requête ; 0 si absent ou invalide.
+unsigned long long afterFrom(const std::string& query) {
+    const size_t p = query.find("after=");
+    if (p == std::string::npos) return 0;
+    try {
+        return std::stoull(query.substr(p + 6));
+    } catch (const std::exception&) {
+        return 0;
+    }
+}
+
 // Une connexion = une requête (Connection: close).
 void serveConnection(SOCKET s) {
     DWORD timeoutMs = 30000;  // lecture de la requête seulement ; la réponse à ask peut durer longtemps
@@ -269,20 +351,35 @@ void serveConnection(SOCKET s) {
     Request req;
     if (!readRequest(s, req)) {
         reply(s, 400, "Bad Request", errorJson("malformed request"));
-    } else if (req.method == "OPTIONS") {  // préflight CORS du navigateur : pas de jeton demandé
+        closesocket(s);
+        return;
+    }
+    std::string target = req.path, query;
+    if (const size_t q = target.find('?'); q != std::string::npos) {
+        query = target.substr(q + 1);
+        target.resize(q);
+    }
+
+    if (req.method == "OPTIONS") {  // préflight CORS du navigateur : pas de jeton demandé
         reply(s, 204, "No Content", "");
+    } else if (req.method == "GET" && (target == "/" || target == "/index.html")) {
+        std::string html;
+        if (readPage(html)) reply(s, 200, "OK", html, "text/html; charset=utf-8");
+        else reply(s, 404, "Not Found", errorJson("web/codeportal-chat.html not found next to codeportal.exe"));
     } else if (req.authorization.rfind("Bearer ", 0) != 0 || !sameToken(token, trim(req.authorization.substr(7)))) {
         reply(s, 401, "Unauthorized", errorJson("missing or wrong token: send Authorization: Bearer <token>"));
-    } else if (req.path == "/api/v1/status" && req.method == "GET") {
+    } else if (target == "/api/v1/status" && req.method == "GET") {
         handleStatus(s);
-    } else if (req.path == "/api/v1/ask" && req.method == "POST") {
+    } else if (target == "/api/v1/events" && req.method == "GET") {
+        handleEvents(s, query);
+    } else if (target == "/api/v1/ask" && req.method == "POST") {
         handleAsk(s, req.body);
-    } else if (req.path == "/api/v1/cancel" && req.method == "POST") {
+    } else if (target == "/api/v1/cancel" && req.method == "POST") {
         handleCancel(s);
-    } else if (req.path == "/api/v1/reset" && req.method == "POST") {
+    } else if (target == "/api/v1/reset" && req.method == "POST") {
         handleReset(s);
     } else {
-        reply(s, 404, "Not Found", errorJson("unknown route: " + req.method + " " + req.path));
+        reply(s, 404, "Not Found", errorJson("unknown route: " + req.method + " " + target));
     }
     closesocket(s);
 }
@@ -316,12 +413,15 @@ int run(const std::string& host, unsigned short port) {
         return 1;
     }
     token = loadOrCreateToken();
-    std::cout << "CodePortal API listening on http://127.0.0.1:" << port << "\n"
-              << "Token file: " << tokenPath() << "\n"
-              << "Send it as: Authorization: Bearer <token>\n";
+    g_activity = record;
+
+    const std::string shown = host == "0.0.0.0" ? "localhost" : host;
+    std::cout << "CodePortal is running headless on http://" << shown << ":" << port << "\n"
+              << "Open this in your browser (the page stores the token, then removes it from the address):\n"
+              << "  http://" << shown << ":" << port << "/#token=" << token << "\n"
+              << "Token file: " << tokenPath() << "\n";
     if (host != "127.0.0.1" && host != "localhost")
-        std::cout << "Warning: reachable from other machines (" << host
-                  << "). Anyone with the token can make the agent edit files and run commands here.\n";
+        std::cout << "Warning: reachable from other machines. Anyone with the token can make the agent edit files and run commands here.\n";
     std::cout << std::flush;
     for (;;) {
         const SOCKET c = accept(listener, nullptr, nullptr);

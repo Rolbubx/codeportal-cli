@@ -15,6 +15,7 @@ It listens on `127.0.0.1` by default; `--bind 0.0.0.0` makes it reachable from o
 | --- | --- | --- | --- |
 | GET | `/api/v1/status` | | provider, model, working directory, `busy` |
 | POST | `/api/v1/ask` | `{"message": "..."}` | `answer`, `steps` (each tool call with its arguments and result), `cancelled` |
+| GET | `/api/v1/events?after=N` | | live activity: numbered events (`turn_start`, `model`, `thinking`, `text`, `tool_start`, `tool_end`, `turn_end`) after N. Without `after`, starts at the latest turn |
 | POST | `/api/v1/cancel` | | stops the turn in progress |
 | POST | `/api/v1/reset` | | clears the conversation |
 
@@ -31,4 +32,6 @@ curl -H "Authorization: Bearer $(cat "$APPDATA/CodePortal/api.token")" \
 
 ### Chat page
 
-`CodePortal/codeportal-cli/web/codeportal-chat.html` is a chat interface for the server. Open it in a browser, enter the server address (`http://127.0.0.1:8765` by default, or the address of the computer running CodePortal) and the token from `api.token`. Each answer shows the tool calls the agent made, with their inputs and results. The page is a single file with no dependencies, and it works offline apart from talking to the server.
+`CodePortal/codeportal-cli/web/codeportal-chat.html` is a chat interface for the server. Open it in a browser, enter the server address (`http://127.0.0.1:8765` by default, or the address of the computer running CodePortal) and the token from `api.token`. Each answer shows the tool calls the agent made, with their inputs and results. The page is a single file with no dependencies. CodePortal also serves it itself: at startup it prints a link such as `http://127.0.0.1:8765/#token=...`. Open that link and the page connects by itself and keeps retrying until the server is up. The token is saved in the browser and removed from the address bar.
+
+While the agent works, the page shows what it is doing as it happens: the current phase, thinking and text as they stream, each tool call with its arguments, its diff and its result, and a raw event log. The finished turn stays in the conversation with the same details.

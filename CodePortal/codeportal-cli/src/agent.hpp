@@ -234,6 +234,7 @@ void chat(const std::string& userText) {
 
         StreamHandlers h;
         h.onThinking = [&](const std::string& t) {  // raisonnement natif, affiché tel quel
+            activity("thinking", "{\"delta\":" + jsonStr(t) + "}");
             if (!thinkingOpen) {
                 closeAnswer();
                 if (lv.inBlock()) lv.endBlock();
@@ -244,6 +245,7 @@ void chat(const std::string& userText) {
             if (!gotUsage) lv.setTokens((estimatedChars += t.size()) / 4);
         };
         h.onText = [&](const std::string& t) {
+            activity("text", "{\"delta\":" + jsonStr(t) + "}");
             if (!answerOpen) {
                 if (trim(t).empty()) return;  // pas de bloc vide
                 if (lv.inBlock()) lv.endBlock();
@@ -263,6 +265,7 @@ void chat(const std::string& userText) {
         h.cancelled = [&] { return lv.interrupted(); };
 
         StreamOutcome out;
+        activity("model", "{\"step\":" + std::to_string(step + 1) + "}");
         lv.startStatus(randomVerb(), true);
         try {
             out = streamProvider(*p, key, model, systemPrompt(), g.history, h);

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <map>
 #include <string>
@@ -61,6 +62,13 @@ struct AppState {
 };
 
 inline AppState g;
+
+// Journal d'activité de l'agent : chaque étape (texte, réflexion, outil, fin de tour) est transmise ici.
+// `data` est un objet JSON. Le mode headless s'en sert pour l'API d'événements ; sinon rien ne se passe.
+inline std::function<void(const std::string& type, const std::string& data)> g_activity;
+inline void activity(const std::string& type, const std::string& data) {
+    if (g_activity) g_activity(type, data);
+}
 
 void loadConfig() {
     std::ifstream in(g.configPath);
