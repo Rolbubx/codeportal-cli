@@ -5,6 +5,8 @@
 // le modèle réponde sans appeler d'outil.
 #pragma once
 
+#include "util.hpp"  // doit venir avant shlobj.h (qui inclut windows.h)
+
 #include <shlobj.h>
 
 #include <memory>
