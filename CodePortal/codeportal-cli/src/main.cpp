@@ -44,6 +44,7 @@ int main() {
     g.cwd = currentDir();
     loadConfig();
     applyTheme(g.theme);
+    LiveView::get().setExpandHandler(expandLastOutcome);
 
     std::cout << "\x1b[2J\x1b[H";
     if (!activeProvider()) onboarding();

@@ -7,6 +7,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -697,14 +699,11 @@ std::string toolTitle(const std::string& name, const std::vector<std::string>& a
     return label + "(" + (args.empty() ? "" : args[0]) + ")";
 }
 
-// Affiche le résultat d'une commande : résumé sous ⎿ (rouge si erreur), diff coloré, sortie si demandée.
-void printOutcome(const ToolResult& r, bool full) {
-    if (!r.summary.empty()) std::cout << (r.ok ? P.muted : P.err) << "  ⎿  " << r.summary << ansi::reset << "\n";
-    // Diff façon Claude Code : numéro de ligne, signe, fond rouge/vert sur toute la largeur.
-    const size_t maxDiff = 40;
+// Diff façon Claude Code : numéro de ligne, signe, fond rouge/vert sur toute la largeur. Au plus `limit` lignes.
+void printDiffLines(const std::vector<DiffLine>& diff, size_t limit) {
     const size_t width = frameWidth() - 6;
-    for (size_t i = 0; i < r.diff.size() && i < maxDiff; ++i) {
-        const DiffLine& d = r.diff[i];
+    for (size_t i = 0; i < diff.size() && i < limit; ++i) {
+        const DiffLine& d = diff[i];
         std::string num = std::to_string(d.lineNo);
         if (num.size() < 4) num = std::string(4 - num.size(), ' ') + num;
         std::string body = num + " " + (d.kind == ' ' ? std::string(" ") : std::string(1, d.kind)) + " " + d.text;
@@ -715,18 +714,64 @@ void printOutcome(const ToolResult& r, bool full) {
             std::cout << "      " << (d.kind == '+' ? P.addBg : P.delBg) << (d.kind == '+' ? P.add : P.del) << body
                       << std::string(pad, ' ') << ansi::reset << "\n";
     }
-    if (r.diff.size() > maxDiff)
-        std::cout << P.muted << "      … +" << r.diff.size() - maxDiff << " lines" << ansi::reset << "\n";
+}
 
+// Sortie texte, indentée sous le résumé. `first` : la première ligne part sous ⎿ si aucun résumé.
+void printOutputLines(const std::vector<std::string>& lines, bool first, size_t limit) {
+    for (size_t i = 0; i < lines.size() && i < limit; ++i)
+        std::cout << P.muted << (i == 0 && first ? "  ⎿  " : "     ") << lines[i] << ansi::reset << "\n";
+}
+
+// Dernière sortie réduite (diff ou sortie coupée) : Ctrl+O l'affiche en entier pendant que l'agent continue.
+struct Expandable {
+    std::string title;
+    ToolResult result;
+    std::vector<std::string> outputLines;
+};
+std::mutex g_expandMu;
+std::optional<Expandable> g_expand;
+
+// Affiche le résultat d'une commande : résumé sous ⎿ (rouge si erreur), diff coloré, sortie si demandée.
+void printOutcome(const ToolResult& r, bool full, const std::string& title = "") {
+    if (!r.summary.empty()) std::cout << (r.ok ? P.muted : P.err) << "  ⎿  " << r.summary << ansi::reset << "\n";
+    const size_t maxDiff = 40, maxLines = 25;
+    printDiffLines(r.diff, maxDiff);
+    bool truncated = r.diff.size() > maxDiff;
+    if (truncated)
+        std::cout << P.muted << "      … +" << r.diff.size() - maxDiff << " lines (ctrl+o to expand)" << ansi::reset << "\n";
+
+    Expandable e{title, r, {}};
     if ((full || r.alwaysShow) && !r.output.empty()) {
-        auto lines = splitLines(r.output);
-        while (!lines.empty() && trim(lines.back()).empty()) lines.pop_back();
-        const size_t maxLines = 25;
-        for (size_t i = 0; i < lines.size() && i < maxLines; ++i)
-            std::cout << P.muted << (i == 0 && r.summary.empty() ? "  ⎿  " : "     ") << lines[i] << ansi::reset << "\n";
-        if (lines.size() > maxLines)
-            std::cout << P.muted << "     … +" << lines.size() - maxLines << " more lines" << ansi::reset << "\n";
+        e.outputLines = splitLines(r.output);
+        while (!e.outputLines.empty() && trim(e.outputLines.back()).empty()) e.outputLines.pop_back();
+        printOutputLines(e.outputLines, r.summary.empty(), maxLines);
+        if (e.outputLines.size() > maxLines) {
+            truncated = true;
+            std::cout << P.muted << "     … +" << e.outputLines.size() - maxLines << " more lines (ctrl+o to expand)"
+                      << ansi::reset << "\n";
+        }
     }
+    if (truncated) {
+        std::lock_guard<std::mutex> lk(g_expandMu);
+        g_expand = std::move(e);
+    }
+}
+
+// Ctrl+O : affiche en entier la dernière sortie réduite. Appelée par le fil du spinner, sans bloquer l'agent.
+void expandLastOutcome() {
+    std::optional<Expandable> e;
+    {
+        std::lock_guard<std::mutex> lk(g_expandMu);
+        e = std::move(g_expand);
+        g_expand.reset();
+    }
+    if (!e) return;
+    LiveView::get().writeAside([&] {
+        std::cout << P.muted << "  ⎿  " << (e->title.empty() ? "full output" : e->title + " · full output") << ansi::reset
+                  << "\n";
+        printDiffLines(e->result.diff, e->result.diff.size());
+        printOutputLines(e->outputLines, false, e->outputLines.size());
+    });
 }
 
 // Exécute une commande (slash, outil ou shell). Retourne le texte renvoyé à l'assistant.
@@ -747,7 +792,7 @@ std::string executeCall(const Call& call, bool fromAgent) {
         ToolResult r;
         r.output = out;
         r.alwaysShow = true;
-        printOutcome(r, false);
+        printOutcome(r, false, cmd);
         return out;
     }
 
@@ -775,7 +820,7 @@ std::string executeCall(const Call& call, bool fromAgent) {
             }
         }
         if (fromAgent) redrawToolCall(title, r.ok ? ToolState::Ok : ToolState::Error);
-        printOutcome(r, !fromAgent);
+        printOutcome(r, !fromAgent, title);
         if (!isTool) return r.output;
         std::string modelText = (r.ok ? "" : "Error: ") + r.summary;
         if (!r.output.empty()) modelText += "\n" + r.output;
@@ -834,7 +879,7 @@ std::string executeAgentTool(const ToolCallRec& tc) {
         }
     }
     redrawToolCall(title, r.ok ? ToolState::Ok : ToolState::Error);
-    printOutcome(r, false);
+    printOutcome(r, false, title);
 
     std::string forModel = (r.ok ? "" : "Error: ") + r.summary;
     if (!r.output.empty()) forModel += (forModel.empty() ? "" : "\n") + r.output;

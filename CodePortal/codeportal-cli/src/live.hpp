@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <functional>
 #include <mutex>
 #include <random>
 #include <string>
@@ -117,6 +118,28 @@ public:
 
     void setTokens(size_t n) { tokens_ = n; }
     bool interrupted() const { return interrupted_; }
+
+    // Ctrl+O pendant que l'agent travaille : `f` est appelée depuis le fil du spinner, hors du verrou,
+    // sans interrompre le flux ni l'outil en cours.
+    void setExpandHandler(std::function<void()> f) { onExpand_ = std::move(f); }
+
+    // Écrit hors du flux (détail d'une sortie demandé avec Ctrl+O). La ligne de statut est effacée puis
+    // redessinée, et le texte en cours de streaming reprend à la ligne suivante.
+    void writeAside(const std::function<void()>& f) {
+        std::lock_guard<std::mutex> lk(mu_);
+        clearStatusLocked();
+        erasePartialLocked();
+        const bool wordBlock = inBlock_ && !mdMode_;
+        if (col_ > 0) std::cout << "\n";
+        f();
+        if (wordBlock) {
+            std::cout << "  ";
+            col_ = 2;
+        } else {
+            col_ = 0;
+        }
+        restoreStatusLocked();
+    }
 
     // ---- blocs de texte en direct -----------------------------------------
     void beginBlock(Block kind) {
@@ -233,6 +256,8 @@ private:
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> interrupted_{false};
+    std::atomic<bool> expandRequested_{false};
+    std::function<void()> onExpand_;
     std::atomic<size_t> tokens_{0};
     std::string verb_;
     bool watchEsc_ = false;
@@ -285,11 +310,14 @@ private:
                     while (_kbhit()) {
                         wint_t ch = _getwch();
                         if (ch == 27) interrupted_ = true;
+                        else if (ch == 15) expandRequested_ = true;  // Ctrl+O
                         else if (ch == 0 || ch == 0xE0) _getwch();
                     }
                 }
                 drawStatusLocked();
             }
+            // Hors du verrou : la fonction d'affichage reprend mu_ pour écrire.
+            if (expandRequested_.exchange(false) && onExpand_) onExpand_();
             std::this_thread::sleep_for(std::chrono::milliseconds(90));
         }
     }

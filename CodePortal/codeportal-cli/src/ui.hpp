@@ -172,6 +172,7 @@ void printShortcuts() {
     item("Ctrl+W", "delete the previous word");
     item("Ctrl+U", "clear the line");
     item("Esc", "clear the line · interrupt the agent while it works");
+    item("Ctrl+O", "show the full output of the last shortened result, without stopping the agent");
     item("Ctrl+C", "clear the line, or quit when it is empty");
     item("!<command>", "run a shell command yourself");
     item("!edit_file('f')", "file tools: create_file, write_file, delete_file, create_dir");
