@@ -209,7 +209,10 @@ std::string plural(size_t n, const std::string& word) {
     // entry -> entries (consonne + y), mais key -> keys
     if (n != 1 && word.size() > 1 && word.back() == 'y' && std::string("aeiou").find(word[word.size() - 2]) == std::string::npos)
         return std::to_string(n) + " " + word.substr(0, word.size() - 1) + "ies";
-    return std::to_string(n) + " " + word + (n == 1 ? "" : "s");
+    // match -> matches, process -> processes
+    const bool es = word.size() > 1 && (word.back() == 's' || word.back() == 'x' ||
+                                        word.compare(word.size() - 2, 2, "ch") == 0 || word.compare(word.size() - 2, 2, "sh") == 0);
+    return std::to_string(n) + " " + word + (n == 1 ? "" : es ? "es" : "s");
 }
 
 ToolResult failTool(const std::string& msg) {

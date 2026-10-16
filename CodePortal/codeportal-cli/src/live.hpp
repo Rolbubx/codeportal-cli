@@ -328,6 +328,7 @@ private:
     }
 
     void drawStatusLocked() {
+        if (g_headless) return;  // personne ne regarde la console : pas d'animation dans les journaux
         static const char* glyphs[] = {"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"};
         const auto secs = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start_).count();
         const std::string verb = verb_ + "…";

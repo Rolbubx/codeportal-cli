@@ -355,9 +355,22 @@
   }
   .think-text { font: italic 14.5px/1.6 var(--font-prose); color: var(--text-2); white-space: pre-wrap; max-height: 360px; overflow: auto; }
   .term { border-radius: 9px; overflow: hidden; border: 1px solid var(--border); background: var(--code-bg); }
-  .term-cmd { padding: 8px 12px; font: 12.5px/1.5 var(--font-mono); color: var(--text); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+  .term-cmd { padding: 8px 12px; font: 12.5px/1.5 var(--font-mono); color: var(--text); border-bottom: 1px solid var(--border); overflow-wrap: anywhere; white-space: pre-wrap; max-height: 260px; overflow: auto; }
   .term-cmd::first-letter { color: var(--accent-strong); }
   .term-out { border: 0; border-radius: 0; }
+  .plan { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .plan-item { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-2); }
+  .plan-box { width: 15px; height: 15px; border-radius: 4px; border: 1.6px solid var(--border-strong); flex: none; }
+  .plan-item.done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--faint); }
+  .plan-item.done .plan-box { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 2px var(--surface-2); }
+  .plan-item.now { color: var(--text); font-weight: 560; }
+  .plan-item.now .plan-box { border-color: var(--accent); background: var(--accent-soft); }
+  .hits { margin: 4px 0 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; }
+  .hits li::marker { color: var(--faint); }
+  .hit-title { color: var(--accent-strong); font-weight: 560; text-decoration: none; }
+  .hit-title:hover { text-decoration: underline; }
+  .hit-url { font: 12px var(--font-mono); color: var(--faint); overflow-wrap: anywhere; }
+  .hit-snippet { color: var(--text-2); margin-top: 2px; }
   .diff { border: 1px solid var(--border); border-radius: 8px; overflow: auto; max-height: 380px; background: var(--code-bg); font: 12.5px/1.55 var(--font-mono); }
   .dl { display: grid; grid-template-columns: 44px 18px minmax(0, 1fr); white-space: pre; }
   .dl span { padding: 0 6px; }
@@ -698,6 +711,18 @@
     tool: '<path d="M12.8 3.4a3.6 3.6 0 0 0-4.3 4.6l-4.9 4.9a1.6 1.6 0 0 0 2.3 2.3l4.9-4.9a3.6 3.6 0 0 0 4.6-4.3l-2.1 2.1-2.2-.4-.4-2.2z"/>',
     spark: '<path d="M10 3v14M3 10h14M5.05 5.05l9.9 9.9M14.95 5.05l-9.9 9.9"/>',
     alert: '<path d="M10 3.5l7 12.5H3z"/><path d="M10 8.5V12M10 14.2v.1"/>',
+    globe: '<circle cx="10" cy="10" r="7"/><path d="M3 10h14M10 3c2 2.2 3 4.5 3 7s-1 4.8-3 7c-2-2.2-3-4.5-3-7s1-4.8 3-7z"/>',
+    download: '<path d="M10 3.5v9M6 9l4 4 4-4M4 16h12"/>',
+    clipboard: '<rect x="5" y="4" width="10" height="13" rx="2"/><path d="M8 4V2.8h4V4M7.5 9h5M7.5 12h5"/>',
+    calc: '<rect x="4.5" y="3" width="11" height="14" rx="2"/><path d="M7.5 6.5h5M7.5 10h.1M10 10h.1M12.5 10h.1M7.5 13h.1M10 13h.1M12.5 13h.1"/>',
+    listChecks: '<path d="M9.5 6h6.5M9.5 10h6.5M9.5 14h6.5M3.5 6l1.3 1.3L7 5M3.5 10l1.3 1.3L7 9M3.5 14l1.3 1.3L7 13"/>',
+    bookmark: '<path d="M6 3.5h8v13l-4-3-4 3z"/>',
+    activity: '<path d="M3 10h3l2-5 4 10 2-5h3"/>',
+    external: '<path d="M11 4h5v5M16 4l-7 7M14 11.5V15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3.5"/>',
+    clock: '<circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2"/>',
+    move: '<path d="M4 10h11M11 6l4 4-4 4"/>',
+    cpu: '<rect x="5" y="5" width="10" height="10" rx="1.5"/><path d="M8 2.5V5M12 2.5V5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5"/>',
+    tree: '<path d="M4 4v12M4 7h5M4 13h5"/><rect x="10" y="5" width="6" height="4" rx="1"/><rect x="10" y="11" width="6" height="4" rx="1"/>',
   };
   function icon(name, size = 16, cls = "") {
     const span = document.createElement("span");
@@ -916,7 +941,39 @@
     run_command: { title: "Run", icon: "terminal" },
     context: { title: "Context", icon: "info" },
     get_context: { title: "Context", icon: "info" },
+    tree: { title: "Tree", icon: "tree" },
+    find_files: { title: "Find files", icon: "search" },
+    search_files: { title: "Search", icon: "search" },
+    file_info: { title: "Info", icon: "info" },
+    replace_lines: { title: "Edit lines", icon: "pencil" },
+    insert_lines: { title: "Insert", icon: "pencil" },
+    append_file: { title: "Append", icon: "filePlus" },
+    copy_path: { title: "Copy", icon: "copy" },
+    move_path: { title: "Move", icon: "move" },
+    delete_dir: { title: "Delete folder", icon: "trash" },
+    undo_last_change: { title: "Undo", icon: "retry" },
+    run_powershell: { title: "PowerShell", icon: "terminal" },
+    start_process: { title: "Start", icon: "activity" },
+    stop_process: { title: "Stop process", icon: "x" },
+    list_processes: { title: "Processes", icon: "cpu" },
+    wait: { title: "Wait", icon: "clock" },
+    fetch_url: { title: "Fetch", icon: "globe" },
+    download_file: { title: "Download", icon: "download" },
+    web_search: { title: "Web search", icon: "globe" },
+    open_path: { title: "Open", icon: "external" },
+    clipboard_read: { title: "Read clipboard", icon: "clipboard" },
+    clipboard_write: { title: "Copy to clipboard", icon: "clipboard" },
+    system_info: { title: "System info", icon: "cpu" },
+    get_env: { title: "Environment", icon: "info" },
+    calculate: { title: "Calculate", icon: "calc" },
+    update_plan: { title: "Plan", icon: "listChecks" },
+    save_memory: { title: "Remember", icon: "bookmark" },
   };
+  // Outils dont le résumé suffit quand tout s'est bien passé (pas de bloc « Result »).
+  const SUMMARY_ONLY = new Set(["write_file", "create_file", "create_dir", "append_file", "copy_path", "move_path",
+    "delete_dir", "delete_file", "undo_last_change", "open_path", "clipboard_write", "save_memory", "wait", "stop_process",
+    "calculate"]);
+  const ARG_LABELS = { url: "URL", pid: "PID", glob: "Files", max_results: "Max results", working_dir: "Folder" };
   const FAILED_RESULT = /^(Error:|Not executed|Invalid|Unknown tool|Cannot|File not found|The <old>)/;
   const toolMeta = (name) => TOOLS[name] || { title: name || "Tool", icon: "tool" };
   function parseArgs(text) {
@@ -926,16 +983,35 @@
     const parts = String(p).split(/[\\/]+/).filter(Boolean);
     return parts.length ? parts[parts.length - 1] : String(p);
   }
+  const firstLine = (s) => String(s || "").split("\n").map((l) => l.trim()).find(Boolean) || "";
+  function planItems(text) {
+    return String(text || "").split("\n").map((l) => l.trim().replace(/^[-*]\s+/, "")).filter(Boolean).map((l) => {
+      const m = /^\[([ xX~>-])\]\s*(.*)$/.exec(l);
+      const st = !m ? " " : /[xX]/.test(m[1]) ? "x" : m[1] === " " ? " " : "~";
+      return { state: st, text: m ? m[2] : l };
+    }).filter((it) => it.text);
+  }
   function argLabel(seg) {
     const a = parseArgs(seg.args);
     if (seg.tool === "run_command") return clip(a.command || "", 90);
-    if (typeof a.path === "string" && a.path) return baseName(a.path);
+    if (seg.tool === "update_plan") {
+      const items = planItems(a.items);
+      const now = items.find((it) => it.state === "~");
+      return items.filter((it) => it.state === "x").length + "/" + items.length + " done" + (now ? " · " + clip(now.text, 50) : "");
+    }
+    if (seg.tool === "move_path" || seg.tool === "copy_path") return clip(baseName(a.source || "") + " → " + (a.destination || ""), 80);
+    if (typeof a.path === "string" && a.path && !a.query && !a.pattern) return baseName(a.path);
+    for (const k of ["query", "pattern", "url", "target", "command", "expression", "note", "name", "script", "text"]) {
+      if (typeof a[k] === "string" && a[k].trim()) return clip(firstLine(a[k]), 80);
+    }
+    if (a.pid !== undefined) return "PID " + a.pid;
+    if (a.seconds !== undefined) return a.seconds + "s";
     const first = Object.values(a).find((v) => typeof v === "string" && v);
-    return clip(first || "", 60);
+    return clip(firstLine(first), 60);
   }
   function argFull(seg) {
     const a = parseArgs(seg.args);
-    return String(a.path || a.command || "");
+    return String(a.path || a.url || a.command || a.target || a.query || "");
   }
 
   // ===================================================================================
@@ -983,30 +1059,75 @@
     row.append(icon(meta.icon, 15, "st-icon"), el("span", "st-title", meta.title), arg, status);
 
     const a = parseArgs(seg.args);
+    const tool = seg.tool;
     if (seg.summary) body.appendChild(el("div", "sb-summary", seg.summary));
-    if (seg.tool === "run_command") {
+
+    if (tool === "run_command" || tool === "run_powershell") {
       const term = el("div", "term");
-      term.appendChild(el("div", "term-cmd", "$ " + (a.command || "")));
+      term.appendChild(el("div", "term-cmd", tool === "run_powershell" ? "PS> " + (a.script || "").trim() : "$ " + (a.command || "")));
       term.appendChild(el("pre", "term-out", seg.result === undefined ? "Running…" : seg.result || "(no output)"));
       body.appendChild(term);
       return;
     }
-    if (typeof a.path === "string" && a.path) body.appendChild(kv("Path", a.path));
-    const hasDiff = seg.diff && seg.diff.length;
-    if (hasDiff) {
-      body.append(el("div", "sb-label", "Changes"), diffNode(seg.diff));
-    } else if ((seg.tool === "write_file" || seg.tool === "create_file") && typeof a.content === "string") {
-      body.append(el("div", "sb-label", "Content"), el("pre", "sb-pre", a.content || "(empty)"));
-    } else if (seg.tool === "edit_file" && typeof a.old_text === "string") {
-      body.append(el("div", "sb-label", "Replace"), el("pre", "sb-pre", a.old_text),
-        el("div", "sb-label", "With"), el("pre", "sb-pre", a.new_text || ""));
-    } else {
-      const extra = Object.keys(a).filter((k) => k !== "path");
-      if (extra.length) body.append(el("div", "sb-label", "Input"), el("pre", "sb-pre", JSON.stringify(a, null, 2)));
-      else if (!Object.keys(a).length && seg.args && seg.args.trim() !== "{}") body.append(el("div", "sb-label", "Input"), el("pre", "sb-pre", seg.args));
+    if (tool === "update_plan") {
+      const list = el("ul", "plan");
+      planItems(a.items).forEach((it) => {
+        const li = el("li", "plan-item " + (it.state === "x" ? "done" : it.state === "~" ? "now" : "todo"));
+        li.append(el("span", "plan-box"), el("span", null, it.text));
+        list.appendChild(li);
+      });
+      body.appendChild(list);
+      return;
     }
-    const resultShown = seg.result !== undefined && !(seg.ok !== false && (hasDiff || seg.tool === "write_file" || seg.tool === "create_file" || seg.tool === "create_dir"));
-    if (resultShown) body.append(el("div", "sb-label", "Result"), el("pre", "sb-pre", seg.result || "(no output)"));
+    if (tool === "web_search" && seg.result) {
+      const hits = parseHits(seg.result);
+      if (hits.length) {
+        const list = el("ol", "hits");
+        hits.forEach((h) => {
+          const li = el("li");
+          const link = el("a", "hit-title", h.title);
+          if (/^https?:\/\//i.test(h.url)) { link.href = h.url; link.target = "_blank"; link.rel = "noopener noreferrer"; }
+          li.append(link, el("div", "hit-url", h.url));
+          if (h.snippet) li.appendChild(el("div", "hit-snippet", h.snippet));
+          list.appendChild(li);
+        });
+        body.appendChild(list);
+        return;
+      }
+    }
+
+    // Arguments : valeurs courtes sur une ligne, textes longs dans un bloc.
+    const hasDiff = seg.diff && seg.diff.length;
+    const skip = new Set();
+    if (hasDiff) { skip.add("old_text"); skip.add("new_text"); skip.add("text"); skip.add("content"); }
+    for (const [k, v] of Object.entries(a)) {
+      if (skip.has(k) || v === null || v === undefined || v === "") continue;
+      const label = ARG_LABELS[k] || k.replace(/_/g, " ");
+      if (typeof v === "string" && (v.includes("\n") || v.length > 160)) {
+        body.append(el("div", "sb-label", label), el("pre", "sb-pre", v));
+      } else {
+        body.appendChild(kv(label.charAt(0).toUpperCase() + label.slice(1), typeof v === "string" ? v : JSON.stringify(v)));
+      }
+    }
+    if (!Object.keys(a).length && seg.args && seg.args.trim() !== "{}") body.append(el("div", "sb-label", "Input"), el("pre", "sb-pre", seg.args));
+    if (hasDiff) body.append(el("div", "sb-label", "Changes"), diffNode(seg.diff));
+    const quiet = seg.ok !== false && (hasDiff || SUMMARY_ONLY.has(tool));
+    if (seg.result !== undefined && !quiet) body.append(el("div", "sb-label", "Result"), el("pre", "sb-pre", seg.result || "(no output)"));
+  }
+
+  // Résultats de web_search (« 1. Titre / adresse / extrait ») pour les afficher en liens.
+  function parseHits(text) {
+    const hits = [];
+    const lines = String(text).split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const m = /^(\d+)\. (.+)$/.exec(lines[i]);
+      if (!m) continue;
+      const url = (lines[i + 1] || "").trim();
+      const next = (lines[i + 2] || "");
+      const snippet = /^\s{2,}\S/.test(next) && !/^\d+\. /.test(next.trim()) ? next.trim() : "";
+      hits.push({ title: m[2], url, snippet });
+    }
+    return hits;
   }
 
   function makeGroup(open) {

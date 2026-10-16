@@ -34,6 +34,12 @@ std::string projectInstructions() {
     return "\n\n# Project instructions (PORTAL.md)\n" + truncate(text, 8000);
 }
 
+// Notes enregistrées avec save_memory : données à l'agent dans chaque conversation.
+std::string savedMemory() {
+    const std::string text = xt::memoryText();
+    return text.empty() ? "" : "\n\n# Memory (notes you saved in earlier conversations)\n" + text;
+}
+
 // Statistiques d'un tour, affichées à la fin comme dans Claude Code : « ✻ Worked for 12s · 3 tool uses ».
 struct TurnStats {
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
@@ -73,6 +79,17 @@ std::string systemPrompt() {
            "- Before calling tools, write one short sentence saying what you are about to do; the user sees it.\n"
            "- For files and folders use the dedicated tools (create_file, write_file, edit_file, delete_file, "
            "create_dir, read_file, list_dir). Use run_command only for what they cannot do (build, git, tests...).\n"
+           "- Explore with tree, find_files and search_files rather than dir /s or findstr. read_file returns 500 "
+           "lines at a time: use start_line to read further.\n"
+           "- If edit_file cannot match the text exactly, use replace_lines or insert_lines with line numbers from "
+           "read_file. undo_last_change reverts your last file change.\n"
+           "- Prefer run_powershell over run_command for anything beyond a simple command. Start servers and other "
+           "long-running programs with start_process, then wait and read their log; stop them with stop_process.\n"
+           "- Use web_search and fetch_url for up-to-date information (documentation, error messages, versions). "
+           "Use open_path to show the user a file, folder or website, and calculate for exact arithmetic.\n"
+           "- For tasks with 3 or more steps, call update_plan first with the steps, then update it as each step "
+           "is done.\n"
+           "- When the user asks you to remember something or states a lasting preference, use save_memory.\n"
            "- The folder paths above are exact: use them directly, do not look them up.\n"
            "- run_command has no keyboard input and a time limit: never start interactive programs (cmd, "
            "powershell without -Command, python without a script, editors...).\n"
@@ -82,7 +99,7 @@ std::string systemPrompt() {
            "- Check every tool result yourself and fix errors. Never ask the user for permission to use a tool.\n"
            "- Ask the user only when the request is genuinely ambiguous.\n"
            "- When finished, give a short summary of what you did. Use Markdown (lists, tables, code blocks) "
-           "when it helps readability." + projectInstructions();
+           "when it helps readability." + projectInstructions() + savedMemory();
 }
 
 // Garde l'historique raisonnable sans séparer un appel d'outil de son résultat :

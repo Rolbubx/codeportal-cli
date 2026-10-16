@@ -18,6 +18,7 @@ add_executable(codeportal
     src/tools.hpp
     src/commands.hpp
     src/agent.hpp
+    src/agenttools.hpp
     src/api.hpp
 )
 

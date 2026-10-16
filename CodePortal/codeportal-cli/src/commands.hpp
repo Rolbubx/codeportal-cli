@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "agenttools.hpp"
 #include "live.hpp"
 #include "providers.hpp"
 #include "state.hpp"
@@ -692,7 +693,16 @@ std::string toolTitle(const std::string& name, const std::vector<std::string>& a
         {"context", "Context"},    {"get_context", "Context"}, {"read_file", "Read"},
         {"list_dir", "List"},      {"create_file", "Write"},   {"write_file", "Write"},
         {"edit_file", "Update"},   {"delete_file", "Delete"},  {"create_dir", "Mkdir"},
-        {"run_command", "Bash"}};
+        {"run_command", "Bash"},   {"tree", "Tree"},           {"find_files", "Find"},
+        {"search_files", "Search"}, {"file_info", "Info"},     {"replace_lines", "Update"},
+        {"insert_lines", "Update"}, {"append_file", "Append"}, {"copy_path", "Copy"},
+        {"move_path", "Move"},     {"delete_dir", "Delete"},   {"undo_last_change", "Undo"},
+        {"run_powershell", "PowerShell"}, {"start_process", "Start"}, {"stop_process", "Stop"},
+        {"list_processes", "Processes"}, {"wait", "Wait"},     {"fetch_url", "Fetch"},
+        {"download_file", "Download"}, {"web_search", "WebSearch"}, {"open_path", "Open"},
+        {"clipboard_read", "Clipboard"}, {"clipboard_write", "Clipboard"}, {"system_info", "System"},
+        {"get_env", "Env"},        {"calculate", "Calc"},      {"update_plan", "Plan"},
+        {"save_memory", "Remember"}};
     std::string label = name;
     for (const auto& [n, t] : titles)
         if (n == name) label = t;
@@ -855,7 +865,7 @@ std::string executeAgentTool(const ToolCallRec& tc) {
     auto has = [&](const char* k) { return parsed && args.find(k) != nullptr; };
 
     const std::string command = str("command");
-    const std::string title = tc.name == "run_command" ? "Bash(" + command + ")" : toolTitle(tc.name, {str("path")});
+    const std::string title = tc.name == "run_command" ? "Bash(" + command + ")" : toolTitle(tc.name, {agentToolArg(args)});
     printToolCall(title, ToolState::Pending);
     activity("tool_start", "{\"id\":" + jsonStr(tc.id) + ",\"tool\":" + jsonStr(tc.name) + ",\"args\":" + jsonStr(tc.args) + "}");
 
@@ -875,6 +885,8 @@ std::string executeAgentTool(const ToolCallRec& tc) {
             r.output = runShell(command, true, &code, timeout);
             r.ok = code == 0;
             r.alwaysShow = true;
+        } else if (isAgentTool(tc.name)) {  // outils de agenttools.hpp (dont read_file par plage de lignes)
+            r = runAgentTool(tc.name, args);
         } else if (isToolName(tc.name)) {
             Call c;
             c.content = str("content");
