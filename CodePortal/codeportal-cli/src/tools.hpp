@@ -42,7 +42,7 @@ struct DiffLine {
 
 struct ToolResult {
     bool ok = true;
-    std::string summary;          // ligne courte affichée sous ⎿
+    std::string summary;          // ligne courte affichée sous └
     std::string output;           // contenu complet (renvoyé au modèle)
     std::vector<DiffLine> diff;   // modification avec contexte
     bool alwaysShow = false;      // afficher la sortie même côté assistant (shell, commandes)

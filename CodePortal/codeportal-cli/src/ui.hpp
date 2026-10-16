@@ -49,50 +49,39 @@ std::string shortenPath(const std::string& path, size_t max) {
 // ---------------------------------------------------------------------------
 // Écran d'accueil animé
 // ---------------------------------------------------------------------------
+// Logo en lettres-blocs (3 lignes) : « CODE » en couleur du texte, « PORTAL » dans le dégradé.
+std::vector<std::string> logoRow(const std::string& word, int row) {
+    static const std::map<char, std::vector<std::string>> glyphs = {
+        {'C', {"█▀▀", "█  ", "▀▀▀"}}, {'O', {"█▀█", "█ █", "▀▀▀"}}, {'D', {"█▀▄", "█ █", "▀▀ "}},
+        {'E', {"█▀▀", "█▀▀", "▀▀▀"}}, {'P', {"█▀█", "█▀▀", "▀  "}}, {'R', {"█▀█", "█▀▄", "▀ ▀"}},
+        {'T', {"▀█▀", " █ ", " ▀ "}}, {'A', {"▄▀█", "█▀█", "▀ ▀"}}, {'L', {"█  ", "█  ", "▀▀▀"}}};
+    std::vector<std::string> out;
+    for (char c : word) out.push_back(glyphs.at(c)[(size_t)row]);
+    return out;
+}
+
 void printBanner() {
-    const size_t inner = std::min<size_t>(std::max<size_t>(56, 0), frameWidth() - 2);
-    const std::string cwd = shortenPath(g.cwd, inner - 10);
-    const std::string model = modelStatus();
     const bool animate = isConsole();
-
-    auto row = [&](const std::string& plain, const std::string& styled) {
-        size_t pad = inner - 2 - std::min(inner - 2, displayLength(plain));
-        return std::string(P.accent) + "│" + ansi::reset + " " + styled + std::string(pad, ' ') + " " + P.accent + "│" +
-               ansi::reset;
-    };
-
-    std::cout << "\n" << P.accent << "╭" << repeatStr("─", inner) << "╮" << ansi::reset << "\n";
-
-    // Titre : l'étoile tourne et un reflet traverse le texte, puis il se fige.
-    const std::string title = "Welcome to CodePortal!";
-    const std::string titlePlain = "✻ " + title;
-    if (animate) {
-        static const char* glyphs[] = {"·", "✢", "✳", "✶", "✻", "✽"};
-        const long frames = (long)displayLength(title) + 6;
-        for (long f = 0; f < frames; ++f) {
-            std::string styled = std::string(P.accent) + glyphs[f % 6] + ansi::reset + " " +
-                                 shimmerText(title, f - 3, P.accent);
-            std::cout << "\r\x1b[2K" << row(titlePlain, styled) << std::flush;
-            pause(28);
+    const size_t w = frameWidth();
+    std::cout << "\n";
+    if (w >= 48) {
+        for (int row = 0; row < 3; ++row) {
+            std::string code, portal;
+            for (const auto& g : logoRow("CODE", row)) code += g + " ";
+            const auto letters = logoRow("PORTAL", row);
+            for (size_t i = 0; i < letters.size(); ++i) portal += letters[i] + (i + 1 < letters.size() ? " " : "");
+            std::cout << "  " << P.text << code << ansi::reset << " " << gradientText(portal) << "\n" << std::flush;
+            if (animate) pause(60);
         }
+    } else {
+        std::cout << "  " << ansi::bold << P.text << "Code" << ansi::reset << gradientText("Portal", 0, 1, true) << "\n";
     }
-    const std::string titleStyled = std::string(P.accent) + "✻" + ansi::reset + " Welcome to " + ansi::bold + P.text +
-                                    "CodePortal" + ansi::reset + "!";
-    std::cout << "\r\x1b[2K" << row(titlePlain, titleStyled) << "\n";
-
-    const std::vector<std::pair<std::string, std::string>> rows = {
-        {"", ""},
-        {"  /help for help, /status for your current setup",
-         std::string("  ") + P.muted + "/help for help, /status for your current setup" + ansi::reset},
-        {"", ""},
-        {"  cwd: " + cwd, std::string("  ") + P.muted + "cwd: " + cwd + ansi::reset},
-        {"  model: " + model, std::string("  ") + P.muted + "model: " + model + ansi::reset},
-    };
-    for (const auto& [plain, styled] : rows) {
-        std::cout << row(plain, styled) << "\n" << std::flush;
-        if (animate) pause(25);
-    }
-    std::cout << P.accent << "╰" << repeatStr("─", inner) << "╯" << ansi::reset << "\n";
+    std::cout << "\n  " << P.muted << "Your coding agent, right in the terminal." << ansi::reset << "\n\n";
+    const std::string cwd = shortenPath(g.cwd, w > 24 ? w - 14 : 20);
+    std::cout << "  " << gradientColor(0) << "◉" << ansi::reset << " " << P.muted << "model   " << ansi::reset << P.text
+              << modelStatus() << ansi::reset << "\n";
+    std::cout << "  " << gradientColor(1) << "◉" << ansi::reset << " " << P.muted << "folder  " << ansi::reset << P.text << cwd
+              << ansi::reset << "\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -146,17 +135,11 @@ const std::vector<CommandInfo>& commandList() {
 }
 
 void printTips() {
-    std::cout << "\n " << P.muted << "Tips for getting started:" << ansi::reset << "\n\n";
-    auto b = [](const char* s) { return std::string(ansi::bold) + P.text + s + ansi::reset + P.muted; };
-    const std::vector<std::string> tips = {
-        "Ask CodePortal to explain, edit or test your code",
-        "Run " + b("/init") + " to create a PORTAL.md file with instructions for CodePortal",
-        "Type " + b("/") + " to browse commands · " + b("↑") + " for your previous messages · " + b("Esc") +
-            " to interrupt the agent",
-        b("/key") + " to add an API key · " + b("/theme") + " for dark or light · " + b("?") + " for shortcuts",
-    };
-    for (size_t i = 0; i < tips.size(); ++i)
-        std::cout << " " << P.muted << (i + 1) << ". " << tips[i] << ansi::reset << "\n";
+    auto k = [](const char* s) { return std::string(P.accent) + s + ansi::reset + P.muted; };
+    std::cout << "\n  " << P.muted << k("/init") << " maps this project · " << k("/") << " commands · " << k("?")
+              << " shortcuts · " << k("Esc") << " interrupts" << ansi::reset << "\n";
+    std::cout << "  " << P.muted << k("/key") << " adds an API key · " << k("/theme") << " dark or light · " << k("/compact")
+              << " shrinks a chat" << ansi::reset << "\n";
 }
 
 void printShortcuts() {
@@ -240,7 +223,7 @@ void printError(const std::string& msg) {
 }
 
 // ---------------------------------------------------------------------------
-// Appels d'outils : ⏺ Bash(dir)  — gris pendant l'exécution, vert si OK, rouge si erreur.
+// Appels d'outils : « ▸ Read main.cpp » — jaune pendant l'exécution, vert si OK, rouge si erreur.
 // ---------------------------------------------------------------------------
 enum class ToolState { Pending, Ok, Error };
 
@@ -250,10 +233,11 @@ std::string toolLine(const std::string& title, ToolState state) {
     if (displayLength(label) > max) label = utf8Prefix(label, max - 1) + "…";
     const size_t paren = label.find('(');
     const std::string name = paren == std::string::npos ? label : label.substr(0, paren);
-    const std::string rest = paren == std::string::npos ? "" : label.substr(paren);
+    std::string arg = paren == std::string::npos ? "" : label.substr(paren + 1);
+    if (!arg.empty() && arg.back() == ')') arg.pop_back();
     const char* color = state == ToolState::Pending ? P.warn : state == ToolState::Ok ? P.ok : P.err;
-    return std::string(color) + "⏺" + ansi::reset + " " + ansi::bold + P.text + name + ansi::reset + P.text + rest +
-           ansi::reset;
+    return std::string(color) + (state == ToolState::Pending ? "▹" : "▸") + ansi::reset + " " + ansi::bold + P.text + name +
+           ansi::reset + (arg.empty() ? "" : " ") + P.muted + arg + ansi::reset;
 }
 
 void printToolCall(const std::string& title, ToolState state = ToolState::Ok) {
@@ -270,11 +254,11 @@ std::vector<std::string> renderMarkdown(const std::string& text, size_t width) {
     return md::render(text, width);
 }
 
-// Réponse de l'assistant (sans ligne vide avant) : ⏺ en tête, Markdown rendu.
+// Réponse de l'assistant (sans ligne vide avant) : ◆ en tête, Markdown rendu.
 void printAnswerBody(const std::string& text) {
     auto lines = renderMarkdown(text, frameWidth() - 3);
     for (size_t i = 0; i < lines.size(); ++i)
-        std::cout << (i == 0 ? std::string(P.text) + "⏺" + ansi::reset + " " : std::string("  ")) << lines[i] << "\n";
+        std::cout << (i == 0 ? gradientColor(0) + "◆" + ansi::reset + " " : std::string("  ")) << lines[i] << "\n";
     std::cout << std::flush;
 }
 
@@ -571,8 +555,8 @@ std::string readPrompt() {
             len = visible.size();
         }
         const bool command = !buf.empty() && buf[0] == L'/';
-        std::string o = "\r\x1b[2K" + std::string(P.border) + "│" + ansi::reset + " " + (command ? P.accent : P.text) +
-                        ">" + ansi::reset + " " + content + std::string(maxContent > len ? maxContent - len : 0, ' ') +
+        std::string o = "\r\x1b[2K" + std::string(P.border) + "│" + ansi::reset + " " + (command ? std::string(P.accent) : gradientColor(0)) +
+                        "❯" + ansi::reset + " " + content + std::string(maxContent > len ? maxContent - len : 0, ' ') +
                         P.border + "│" + ansi::reset;
         // Bas du cadre puis pied de page (ou aide sur les arguments).
         o += "\x1b[1B\r\x1b[2K" + std::string(P.border) + "╰" + repeatStr("─", inner) + "╯" + ansi::reset;
@@ -707,7 +691,7 @@ std::string readPrompt() {
     std::cout << "\x1b[1A\r\x1b[J";  // efface le cadre et le menu, puis réaffiche le message
     auto lines = wrapWords(maskKeyCommand(text), w - 3);
     for (size_t i = 0; i < lines.size(); ++i)
-        std::cout << P.muted << (i == 0 ? "> " : "  ") << lines[i] << ansi::reset << "\n";
+        std::cout << P.muted << (i == 0 ? "❯ " : "  ") << lines[i] << ansi::reset << "\n";
     std::cout << std::flush;
     return text;
 }

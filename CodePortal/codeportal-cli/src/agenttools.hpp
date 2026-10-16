@@ -1611,7 +1611,7 @@ inline bool isAgentTool(const std::string& name) {
     return names.count(name) > 0;
 }
 
-// Argument principal, pour la ligne « ⏺ Outil(argument) » du terminal.
+// Argument principal, pour la ligne « ▸ Outil argument » du terminal.
 inline std::string agentToolArg(const JVal& args) {
     if (args.type != JVal::OBJ) return "";
     for (const char* k : {"path", "query", "pattern", "url", "target", "source", "command", "name", "expression", "note", "pid", "seconds"}) {

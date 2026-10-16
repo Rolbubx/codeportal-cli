@@ -40,7 +40,7 @@ std::string savedMemory() {
     return text.empty() ? "" : "\n\n# Memory (notes you saved in earlier conversations)\n" + text;
 }
 
-// Statistiques d'un tour, affichées à la fin comme dans Claude Code : « ✻ Worked for 12s · 3 tool uses ».
+// Statistiques d'un tour, affichées à la fin : « ◉ Done in 12s · 3 tools · ↓ 1.2k tokens ».
 struct TurnStats {
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
     size_t tools = 0, tokens = 0;
@@ -49,11 +49,10 @@ struct TurnStats {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         g.usage.agentSeconds += secs;
         if (secs < 3 && tools == 0) return;
-        static const char* verbs[] = {"Worked", "Cooked", "Brewed", "Crafted", "Churned", "Baked", "Pondered"};
-        std::string line = std::string(verbs[(size_t)secs % 7]) + " for " + formatDuration(secs);
-        if (tools) line += " · " + plural(tools, "tool use");
+        std::string line = "Done in " + formatDuration(secs);
+        if (tools) line += " · " + plural(tools, "tool");
         if (tokens) line += " · ↓ " + formatTokens(tokens) + " tokens";
-        std::cout << "\n" << P.accent << "✻ " << ansi::reset << P.muted << line << ansi::reset << "\n" << std::flush;
+        std::cout << "\n" << gradientColor(0.5) << "◉ " << ansi::reset << P.muted << line << ansi::reset << "\n" << std::flush;
     }
 };
 
@@ -311,7 +310,7 @@ void chat(const std::string& userText) {
         lv.stopStatus();
 
         if (out.cancelled) {
-            std::cout << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
+            std::cout << P.err << "  └  Interrupted by user" << ansi::reset << "\n";
             g.history.push_back({"assistant", out.text + "\n[interrupted by the user]"});
             return;
         }
@@ -340,7 +339,7 @@ void chat(const std::string& userText) {
             if (!interrupted && LiveView::get().interrupted()) interrupted = true;
         }
         if (interrupted) {
-            std::cout << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
+            std::cout << P.err << "  └  Interrupted by user" << ansi::reset << "\n";
             break;
         }
 

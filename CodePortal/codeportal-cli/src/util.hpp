@@ -56,8 +56,41 @@ struct Palette {
 };
 
 inline Palette P;
+inline bool g_lightTheme = false;
+
+// Dégradé CodePortal : violet → bleu → cyan (24 bits). t entre 0 et 1.
+inline std::string gradientColor(double t) {
+    static const int dark[3][3] = {{150, 128, 255}, {92, 140, 255}, {45, 212, 243}};
+    static const int light[3][3] = {{99, 80, 240}, {37, 99, 235}, {8, 145, 178}};
+    const int(*c)[3] = g_lightTheme ? light : dark;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const int seg = t < 0.5 ? 0 : 1;
+    const double u = seg == 0 ? t * 2 : (t - 0.5) * 2;
+    char buf[32];
+    snprintf(buf, sizeof buf, "\x1b[38;2;%d;%d;%dm", (int)(c[seg][0] + (c[seg + 1][0] - c[seg][0]) * u),
+             (int)(c[seg][1] + (c[seg + 1][1] - c[seg][1]) * u), (int)(c[seg][2] + (c[seg + 1][2] - c[seg][2]) * u));
+    return buf;
+}
+
+// Texte coloré caractère par caractère le long du dégradé (de `from` à `to`).
+inline std::string gradientText(const std::string& s, double from = 0, double to = 1, bool bold = false) {
+    std::vector<std::string> chars;
+    for (size_t i = 0; i < s.size();) {
+        const unsigned char c = (unsigned char)s[i];
+        const size_t len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+        chars.push_back(s.substr(i, len));
+        i += len;
+    }
+    std::string out = bold ? ansi::bold : "";
+    for (size_t i = 0; i < chars.size(); ++i) {
+        if (chars[i] != " ") out += gradientColor(chars.size() > 1 ? from + (to - from) * (double)i / (double)(chars.size() - 1) : from);
+        out += chars[i];
+    }
+    return out + ansi::reset;
+}
 
 inline void applyTheme(const std::string& name) {
+    g_lightTheme = name == "light";
     if (name == "light") {
         P = {"\x1b[38;2;99;80;240m",   "\x1b[38;2;24;26;44m",    "\x1b[38;2;100;104;130m",
              "\x1b[38;2;40;128;60m",   "\x1b[38;2;196;40;60m",   "\x1b[38;2;150;150;150m",

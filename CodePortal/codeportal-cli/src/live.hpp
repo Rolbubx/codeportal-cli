@@ -1,8 +1,8 @@
 // live.hpp : affichage en direct, comme Claude Code.
 //
-//   - Ligne de statut animée : ✻ Pondering… (12s · ↓ 1.2k tokens · esc to interrupt)
-//     L'étoile tourne, le verbe scintille, Échap interrompt la génération.
-//   - Écriture au fil du streaming : la réflexion (✻ Thinking…) et la réponse (⏺ ...) s'affichent
+//   - Ligne de statut animée : ⠹ Pondering… (12s · ↓ 1.2k tokens · esc to interrupt)
+//     Le spinner tourne en changeant de couleur (dégradé CodePortal), le verbe scintille, Échap interrompt.
+//   - Écriture au fil du streaming : la réflexion (✧ Thinking…) et la réponse (◆ ...) s'affichent
 //     mot par mot, avec retour à la ligne propre, la ligne de statut restant toujours en dessous.
 //
 // Toutes les écritures passent par un mutex : le fil du spinner et le fil principal ne se
@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <mutex>
@@ -66,6 +67,22 @@ std::string shimmerText(const std::string& text, long pos, const char* base) {
         out += chars[i];
     }
     return out + ansi::reset;
+}
+
+// Ligne de statut : spinner « orbite » dans le dégradé, verbe qui scintille, durée et tokens.
+std::string statusLine(size_t frame, const std::string& verbText, long long secs, size_t tokens, bool esc) {
+    static const char* orbit[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+    const std::string verb = verbText + "…";
+    const long span = (long)displayLength(verb) + 8;
+    const long pos = (long)(frame % (size_t)span) - 4;
+    std::string info = "(" + std::to_string(secs) + "s";
+    if (tokens > 0) info += " · ↓ " + formatTokens(tokens) + " tokens";
+    if (esc) info += " · esc to interrupt";
+    info += ")";
+    if (displayLength(verb) + displayLength(info) + 4 > consoleWidth()) info = "(" + std::to_string(secs) + "s)";
+    const double t = 0.5 + 0.5 * std::sin((double)frame * 0.18);
+    return gradientColor(t) + orbit[frame % 10] + ansi::reset + " " + shimmerText(verb, pos, P.accent) + " " + P.muted +
+           info + ansi::reset;
 }
 
 enum class Block { Thinking, Answer };
@@ -160,9 +177,9 @@ public:
         blockNewlines_ = 0;
         word_.clear();
         if (kind == Block::Thinking) {
-            std::cout << P.muted << ansi::italic << "✻ Thinking…" << ansi::reset << "\n  ";
+            std::cout << P.muted << ansi::italic << "✧ Thinking…" << ansi::reset << "\n  ";
         } else {
-            std::cout << P.text << "⏺" << ansi::reset << " ";
+            std::cout << gradientColor(0) << "◆" << ansi::reset << " ";
         }
         col_ = 2;
         restoreStatusLocked();
@@ -284,11 +301,11 @@ private:
 
     // Mode Markdown
     bool mdMode_ = false;
-    bool mdFirst_ = true;       // la prochaine ligne affichée est la première du bloc (⏺)
+    bool mdFirst_ = true;       // la prochaine ligne affichée est la première du bloc (◆)
     size_t partialLines_ = 0;   // lignes occupées par la ligne en cours
 
     std::string mdPrefixLocked(bool first) const {
-        return first ? std::string(P.text) + "⏺" + ansi::reset + " " : std::string("  ");
+        return first ? gradientColor(0) + "◆" + ansi::reset + " " : std::string("  ");
     }
 
     // Efface la ligne en cours (le curseur est juste en dessous). Si elle dépasse l'écran,
@@ -329,20 +346,8 @@ private:
 
     void drawStatusLocked() {
         if (g_headless) return;  // personne ne regarde la console : pas d'animation dans les journaux
-        static const char* glyphs[] = {"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"};
         const auto secs = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start_).count();
-        const std::string verb = verb_ + "…";
-        const long span = (long)displayLength(verb) + 8;
-        const long pos = (long)(frame_ % (size_t)span) - 4;
-
-        std::string info = "(" + std::to_string(secs) + "s";
-        if (tokens_ > 0) info += " · ↓ " + formatTokens(tokens_) + " tokens";
-        if (watchEsc_) info += " · esc to interrupt";
-        info += ")";
-        if (displayLength(verb) + displayLength(info) + 4 > consoleWidth()) info = "(" + std::to_string(secs) + "s)";
-
-        std::cout << "\r\x1b[2K" << P.accent << glyphs[(frame_ / 2) % 10] << ansi::reset << " "
-                  << shimmerText(verb, pos, P.accent) << " " << P.muted << info << ansi::reset << std::flush;
+        std::cout << "\r\x1b[2K" << statusLine(frame_, verb_, (long long)secs, tokens_, watchEsc_) << std::flush;
         statusDrawn_ = true;
     }
 

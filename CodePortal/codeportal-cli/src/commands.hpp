@@ -646,7 +646,7 @@ void cmdDoctor() {
 }
 
 void cmdVersion() {
-    std::cout << P.accent << "✻ " << ansi::reset << ansi::bold << "CodePortal " << kVersion << ansi::reset << P.muted
+    std::cout << gradientColor(0.5) << "◉ " << ansi::reset << ansi::bold << "CodePortal " << kVersion << ansi::reset << P.muted
               << "  (built " << __DATE__ << " · " << providers().size() << " providers · " << toolSpecs().size()
               << " agent tools)" << ansi::reset << "\n";
 }
@@ -787,10 +787,10 @@ void printDiffLines(const std::vector<DiffLine>& diff, size_t limit) {
     }
 }
 
-// Sortie texte, indentée sous le résumé. `first` : la première ligne part sous ⎿ si aucun résumé.
+// Sortie texte, indentée sous le résumé. `first` : la première ligne part sous └ si aucun résumé.
 void printOutputLines(const std::vector<std::string>& lines, bool first, size_t limit) {
     for (size_t i = 0; i < lines.size() && i < limit; ++i)
-        std::cout << P.muted << (i == 0 && first ? "  ⎿  " : "     ") << lines[i] << ansi::reset << "\n";
+        std::cout << P.muted << (i == 0 && first ? "  └  " : "     ") << lines[i] << ansi::reset << "\n";
 }
 
 // Dernière sortie réduite (diff ou sortie coupée) : Ctrl+O l'affiche en entier pendant que l'agent continue.
@@ -802,9 +802,9 @@ struct Expandable {
 std::mutex g_expandMu;
 std::optional<Expandable> g_expand;
 
-// Affiche le résultat d'une commande : résumé sous ⎿ (rouge si erreur), diff coloré, sortie si demandée.
+// Affiche le résultat d'une commande : résumé sous └ (rouge si erreur), diff coloré, sortie si demandée.
 void printOutcome(const ToolResult& r, bool full, const std::string& title = "") {
-    if (!r.summary.empty()) std::cout << (r.ok ? P.muted : P.err) << "  ⎿  " << r.summary << ansi::reset << "\n";
+    if (!r.summary.empty()) std::cout << (r.ok ? P.muted : P.err) << "  └  " << r.summary << ansi::reset << "\n";
     const size_t maxDiff = 40, maxLines = 25;
     printDiffLines(r.diff, maxDiff);
     bool truncated = r.diff.size() > maxDiff;
@@ -838,7 +838,7 @@ void expandLastOutcome() {
     }
     if (!e) return;
     LiveView::get().writeAside([&] {
-        std::cout << P.muted << "  ⎿  " << (e->title.empty() ? "full output" : e->title + " · full output") << ansi::reset
+        std::cout << P.muted << "  └  " << (e->title.empty() ? "full output" : e->title + " · full output") << ansi::reset
                   << "\n";
         printDiffLines(e->result.diff, e->result.diff.size());
         printOutputLines(e->outputLines, false, e->outputLines.size());
