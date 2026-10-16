@@ -1,6 +1,14 @@
 # codeportal-cli
 Codeportal-cli
 
+## Screenshots
+
+| Dark | Light |
+| --- | --- |
+| ![Welcome screen, dark](CodePortal/codeportal-cli/docs/screenshots/dark-1-welcome.png) | ![Welcome screen, light](CodePortal/codeportal-cli/docs/screenshots/light-1-welcome.png) |
+| ![The agent working, steps shown live](CodePortal/codeportal-cli/docs/screenshots/dark-2-live.png) | ![Finished answer with web results and the / command menu](CodePortal/codeportal-cli/docs/screenshots/light-4-answer.png) |
+| ![Expanded steps: plan, search and a diff](CodePortal/codeportal-cli/docs/screenshots/dark-3-steps.png) | ![Phone layout](CodePortal/codeportal-cli/docs/screenshots/dark-7-mobile-chat.png) |
+
 ## Headless mode and local API
 
 CodePortal can run without its console interface, as a local server that other programs call:
