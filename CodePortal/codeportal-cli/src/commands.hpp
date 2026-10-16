@@ -516,31 +516,92 @@ void cmdLoad(const std::string& rest) {
         }
 }
 
-void cmdCompact() {
-    if (g.history.size() < 2) {
-        std::cout << "Nothing to compact yet.\n";
-        return;
+// Taille approximative de l'historique, en tokens (≈ 4 caractères par token).
+size_t historyTokens() {
+    size_t chars = 0;
+    for (const auto& m : g.history) {
+        chars += m.text.size() + m.thinking.size();
+        for (const auto& tc : m.toolCalls) chars += tc.args.size() + tc.name.size();
     }
-    std::string err, summary;
+    return chars / 4;
+}
+
+// Transcription de l'historique pour le résumé. Les longs textes sont coupés ; si l'ensemble est trop long,
+// on garde la fin (le plus récent compte le plus).
+std::string historyTranscript() {
+    std::string out;
+    for (const auto& m : g.history) {
+        if (m.role == "user") out += "## User\n" + truncate(m.text, 4000) + "\n\n";
+        else if (m.role == "assistant") {
+            out += "## Assistant\n" + truncate(m.text, 3000) + "\n";
+            for (const auto& tc : m.toolCalls) out += "- called " + tc.name + " " + truncate(tc.args, 400) + "\n";
+            out += "\n";
+        } else if (m.role == "tool") {
+            out += "## Tool result (" + m.toolName + ")\n" + truncate(m.text, 800) + "\n\n";
+        }
+    }
+    const size_t limit = 150000;
+    if (out.size() > limit) out = "[... earlier part of the conversation cut ...]\n" + out.substr(out.size() - limit);
+    return out;
+}
+
+struct CompactResult {
+    bool ok = false;
+    std::string summary, error;
+    size_t messagesBefore = 0, tokensBefore = 0, tokensAfter = 0;
+};
+
+// Remplace l'historique par un résumé fait par le modèle : les requêtes suivantes envoient bien moins de contexte.
+// `focus` : ce qu'il faut garder en priorité (facultatif).
+CompactResult compactHistory(const std::string& focus) {
+    CompactResult r;
+    r.messagesBefore = g.history.size();
+    r.tokensBefore = historyTokens();
+    if (g.history.size() < 2) {
+        r.error = "Nothing to compact yet.";
+        return r;
+    }
+    const std::string system =
+        "You summarize a conversation between a user and an autonomous coding agent, so the agent can continue the "
+        "work later without the full history. Write in the language of the conversation. Be factual and complete "
+        "but concise. Use these Markdown sections, skipping empty ones:\n"
+        "## Goal\nWhat the user wants overall.\n"
+        "## Done so far\nWhat was done, with exact file paths, commands and results.\n"
+        "## Key facts\nDecisions, findings, errors met and how they were solved, names, versions, values.\n"
+        "## Current state\nWhere things stand right now.\n"
+        "## Next steps\nWhat remains to do, including anything the user asked for that is not finished.\n"
+        "## User preferences\nHow the user likes things done.";
+    std::string prompt = "Summarize this conversation.";
+    if (!trim(focus).empty()) prompt += " Pay special attention to: " + trim(focus) + ".";
+    prompt += "\n\n" + historyTranscript();
+    r.summary = trim(askAgent(prompt, system, &r.error));
+    if (r.summary.empty()) {
+        if (r.error.empty()) r.error = "The model returned an empty summary.";
+        return r;
+    }
+    g.history.clear();
+    g.history.push_back({"user", "[This conversation was compacted. Summary of everything so far:]\n\n" + r.summary});
+    g.history.push_back({"assistant", "Understood. I have the summary and will continue from there."});
+    r.tokensAfter = historyTokens();
+    r.ok = true;
+    return r;
+}
+
+void cmdCompact(const std::string& focus) {
+    CompactResult r;
     {
         Spinner spin("Compacting");
         spin.start();
-        summary = askAgent(
-            "Summarize this conversation between a user and a coding agent so the agent can continue the work. "
-            "Keep the user's goals, decisions, files created or changed (with paths), important results and what "
-            "remains to do. Be concise and factual, in Markdown bullet points.\n\n" + contextText(),
-            "", &err);
+        r = compactHistory(focus);
     }
-    if (summary.empty()) {
-        printError("Compaction failed: " + err);
+    if (!r.ok) {
+        if (r.messagesBefore < 2) std::cout << "Nothing to compact yet.\n";
+        else printError("Compaction failed: " + r.error);
         return;
     }
-    const size_t before = g.history.size();
-    g.history.clear();
-    g.history.push_back({"user", "Summary of our conversation so far:\n" + summary});
-    g.history.push_back({"assistant", "Understood. I will continue from this summary."});
-    printOk("Compacted " + plural(before, "message") + " into a summary:");
-    for (const auto& l : md::render(summary, frameWidth() - 4)) std::cout << "  " << l << "\n";
+    printOk("Compacted " + plural(r.messagesBefore, "message") + " into a summary (~" + formatTokens(r.tokensBefore) +
+            " → ~" + formatTokens(r.tokensAfter) + " tokens):");
+    for (const auto& l : md::render(r.summary, frameWidth() - 4)) std::cout << "  " << l << "\n";
 }
 
 void cmdDoctor() {
@@ -669,7 +730,7 @@ bool handleCommand(const std::string& line) {
     else if (cmd == "/save") cmdSave(rest);
     else if (cmd == "/load" || cmd == "/resume") cmdLoad(rest);
     else if (cmd == "/sessions") cmdSessions();
-    else if (cmd == "/compact") cmdCompact();
+    else if (cmd == "/compact") cmdCompact(rest);
     else if (cmd == "/doctor") cmdDoctor();
     else if (cmd == "/version") cmdVersion();
     else if (cmd == "/open") cmdOpen(rest);

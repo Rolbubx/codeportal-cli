@@ -10,6 +10,7 @@
 //                                             Chaque conversation a son propre historique (défaut : "default").
 //   GET  /api/v1/events?after=N               ce que fait l'agent, en direct : événements numérotés après N
 //   POST /api/v1/cancel                       arrête le tour en cours
+//   POST /api/v1/compact  {"conversation": "id", "focus": "..."}  résume la conversation pour alléger le contexte
 //   POST /api/v1/reset    {"conversation": "id"}  efface cette conversation (sans corps : toutes)
 // Les routes /api/v1/* exigent « Authorization: Bearer <jeton> ». Le jeton est créé au premier lancement
 // dans api.token, à côté de config.ini. Un seul tour à la fois : un ask pendant un autre tour reçoit 409.
@@ -363,6 +364,39 @@ void handleCancel(SOCKET s) {
     reply(s, 200, "OK", "{\"ok\":true,\"cancelling\":true}");
 }
 
+// {"conversation": "id", "focus": "..."} : remplace l'historique de la conversation par un résumé du modèle.
+void handleCompact(SOCKET s, const std::string& body) {
+    JVal v;
+    JsonParser parser(body.empty() ? "{}" : body);
+    if (!parser.parse(v) || v.type != JVal::OBJ) return reply(s, 400, "Bad Request", errorJson("expected {\"conversation\": \"id\"}"));
+    const JVal* f = v.find("focus");
+    const std::string focus = f && f->type == JVal::STR ? f->str : "";
+    std::unique_lock<std::mutex> lock(turnMu, std::try_to_lock);
+    if (!lock.owns_lock()) return reply(s, 409, "Conflict", errorJson("a turn is already running"));
+    const std::string conversation = sessionId(v);
+    auto it = sessions.find(conversation);
+    if (it == sessions.end() || it->second.size() < 2)
+        return reply(s, 409, "Conflict", errorJson("Nothing to compact yet: CodePortal has no history for this chat (it may have restarted)."));
+    busy = true;
+    CompactResult r;
+    {
+        std::swap(g.history, it->second);
+        try {
+            r = compactHistory(focus);
+        } catch (const std::exception& e) {
+            r.ok = false;
+            r.error = e.what();
+        }
+        std::swap(g.history, it->second);
+    }
+    busy = false;
+    if (!r.ok) return reply(s, 502, "Bad Gateway", errorJson("Compaction failed: " + r.error));
+    reply(s, 200, "OK",
+          "{\"ok\":true,\"conversation\":" + jsonStr(conversation) + ",\"summary\":" + jsonStr(r.summary) +
+              ",\"messages\":" + std::to_string(r.messagesBefore) + ",\"tokens_before\":" + std::to_string(r.tokensBefore) +
+              ",\"tokens_after\":" + std::to_string(r.tokensAfter) + "}");
+}
+
 // {"conversation": "id"} efface cette conversation ; sans corps, toutes.
 void handleReset(SOCKET s, const std::string& body) {
     std::unique_lock<std::mutex> lock(turnMu, std::try_to_lock);
@@ -422,6 +456,8 @@ void serveConnection(SOCKET s) {
         handleAsk(s, req.body);
     } else if (target == "/api/v1/cancel" && req.method == "POST") {
         handleCancel(s);
+    } else if (target == "/api/v1/compact" && req.method == "POST") {
+        handleCompact(s, req.body);
     } else if (target == "/api/v1/reset" && req.method == "POST") {
         handleReset(s, req.body);
     } else {

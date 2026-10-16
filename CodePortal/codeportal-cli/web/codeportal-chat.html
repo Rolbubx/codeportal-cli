@@ -395,6 +395,29 @@
     font: 12px/1.5 var(--font-mono); color: var(--muted); max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word;
   }
 
+  /* repère « conversation résumée » et commandes « / » */
+  .msg-note .note-bar { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12.5px; }
+  .note-line { flex: 1; height: 1px; background: var(--border); min-width: 16px; }
+  .note-chip {
+    display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border);
+    background: var(--surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 82%;
+  }
+  .note-chip .ic { color: var(--accent); }
+  .note-sum { margin: 8px auto 0; max-width: 660px; }
+  .note-sum > summary { cursor: pointer; text-align: center; font-size: 12.5px; color: var(--muted); }
+  .note-sum > summary:hover { color: var(--text); }
+  .note-sum[open] > summary { margin-bottom: 8px; }
+  .note-sum .prose { font-size: 15px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  .cmd-pop {
+    max-width: 720px; margin: 0 auto 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 6px; animation: rise .15s ease-out;
+  }
+  .cmd-item { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 9px; text-align: left; font-size: 13.5px; }
+  .cmd-item:hover, .cmd-item.sel { background: var(--hover); }
+  .cmd-name { font: 600 13px var(--font-mono); color: var(--accent-strong); flex: none; }
+  .cmd-args { font: 12px var(--font-mono); color: var(--faint); flex: none; }
+  .cmd-desc { color: var(--muted); min-width: 0; }
+
   /* erreurs */
   .err-box {
     display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 12px;
@@ -598,8 +621,9 @@
     <div class="composer-wrap">
       <button class="to-bottom hidden" id="toBottom" type="button" aria-label="Scroll to the latest message"><span data-icon="chevron" data-size="18"></span></button>
       <div class="banner hidden" id="banner"></div>
+      <div class="cmd-pop hidden" id="cmdPop" role="listbox" aria-label="Commands"></div>
       <form class="composer" id="composer">
-        <textarea id="input" rows="1" placeholder="Ask CodePortal to read, change or run something…" aria-label="Message"></textarea>
+        <textarea id="input" rows="1" placeholder="Ask CodePortal to read, change or run something… (/ for commands)" aria-label="Message"></textarea>
         <div class="toolbar">
           <span class="chip hidden" id="cwdChip"><span data-icon="folder" data-size="14"></span><span></span></span>
           <span class="chip hidden" id="modelChip"><span data-icon="spark" data-size="14"></span><span></span></span>
@@ -722,6 +746,7 @@
     clock: '<circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2"/>',
     move: '<path d="M4 10h11M11 6l4 4-4 4"/>',
     cpu: '<rect x="5" y="5" width="10" height="10" rx="1.5"/><path d="M8 2.5V5M12 2.5V5M8 15v2.5M12 15v2.5M2.5 8H5M2.5 12H5M15 8h2.5M15 12h2.5"/>',
+    compress: '<path d="M4 10h12M10 2.5V7M7.5 4.8L10 7l2.5-2.2M10 17.5V13M7.5 15.2L10 13l2.5 2.2"/>',
     tree: '<path d="M4 4v12M4 7h5M4 13h5"/><rect x="10" y="5" width="6" height="4" rx="1"/><rect x="10" y="11" width="6" height="4" rx="1"/>',
   };
   function icon(name, size = 16, cls = "") {
@@ -740,7 +765,7 @@
     themeBtn: $("themeBtn"), settingsBtn: $("settingsBtn"), title: $("title"), pill: $("pill"), pillText: $("pillText"),
     scroller: $("scroller"), welcome: $("welcome"), greeting: $("greeting"), welcomeSub: $("welcomeSub"),
     suggestions: $("suggestions"), thread: $("thread"), toBottom: $("toBottom"), banner: $("banner"),
-    composer: $("composer"), input: $("input"), cwdChip: $("cwdChip"), modelChip: $("modelChip"), sendBtn: $("sendBtn"),
+    composer: $("composer"), input: $("input"), cmdPop: $("cmdPop"), cwdChip: $("cwdChip"), modelChip: $("modelChip"), sendBtn: $("sendBtn"),
     toasts: $("toasts"), settings: $("settings"), setClose: $("setClose"), url: $("url"), token: $("token"),
     tokenToggle: $("tokenToggle"), connHelp: $("connHelp"), themeSeg: $("themeSeg"), clearAll: $("clearAll"),
   };
@@ -1416,6 +1441,25 @@
       row.appendChild(el("div", "bubble", m.text));
       return row;
     }
+    if (m.role === "note") {
+      const row = el("div", "msg msg-note");
+      const bar = el("div", "note-bar");
+      const chip = el("span", "note-chip");
+      const parts = ["Conversation compacted"];
+      if (m.messages) parts.push(plural(m.messages, "message") + " → summary");
+      if (m.before) parts.push("~" + fmtTokens(m.before) + " → ~" + fmtTokens(m.after || 0) + " tokens");
+      chip.append(icon("compress", 14), el("span", null, parts.join(" · ")));
+      bar.append(el("span", "note-line"), chip, el("span", "note-line"));
+      row.appendChild(bar);
+      if (m.text) {
+        const d = el("details", "note-sum");
+        const body = el("div", "prose");
+        body.innerHTML = renderMarkdown(m.text);
+        d.append(el("summary", null, "Show what CodePortal kept"), body);
+        row.appendChild(d);
+      }
+      return row;
+    }
     if (m.role === "error") {
       const row = el("div", "msg msg-err");
       const box = el("div", "err-box");
@@ -1610,7 +1654,7 @@
     els.pill.classList.toggle("hidden", !on);
     updateSendState();
   }
-  function updateSendState() { els.sendBtn.disabled = !live && !els.input.value.trim(); }
+  function updateSendState() { els.sendBtn.disabled = !live && (compacting || !els.input.value.trim()); }
 
   function startLive(owner, convId) {
     if (live) return;
@@ -1859,9 +1903,83 @@
   // ===================================================================================
   // Actions
   // ===================================================================================
+  // ---------- commandes « / » ----------
+  const COMMANDS = [
+    { name: "/compact", args: "[focus]", desc: "Summarize this chat so CodePortal sends less context. Optionally say what to keep." },
+  ];
+  let compacting = false;
+  const fmtTokens = (n) => (n < 1000 ? String(n) : (n / 1000).toFixed(1) + "k");
+
+  // Le modèle résume la conversation ; le serveur garde ce résumé à la place de tout l'historique.
+  async function compact(focus) {
+    if (live || compacting) { toast("Wait until CodePortal is done."); return; }
+    if (!conn.token) { openSettings(); toast("Add the token first.", "err"); return; }
+    const conv = activeConv();
+    if (conv.messages.filter((m) => m.role === "user").length < 1) { toast("Nothing to compact yet."); return; }
+    els.input.value = "";
+    autosize();
+    const pending = el("div", "msg msg-note");
+    const bar = el("div", "note-bar");
+    const chip = el("span", "note-chip");
+    chip.append(el("span", "spinner sm"), el("span", null, "Compacting the conversation…"));
+    bar.append(el("span", "note-line"), chip, el("span", "note-line"));
+    pending.appendChild(bar);
+    showThread();
+    els.thread.appendChild(pending);
+    scrollToBottom(true);
+    compacting = true;
+    els.pill.classList.remove("hidden");
+    els.pillText.textContent = "Compacting…";
+    updateSendState();
+    try {
+      const r = await api("/api/v1/compact", { method: "POST", body: { conversation: conv.id, focus: focus || "" } });
+      pending.remove();
+      pushMessage(conv, { role: "note", kind: "compact", text: r.summary, messages: r.messages, before: r.tokens_before, after: r.tokens_after });
+      toast("Conversation compacted.");
+    } catch (e) {
+      pending.remove();
+      toast(e.message, "err");
+    } finally {
+      compacting = false;
+      els.pill.classList.add("hidden");
+      updateSendState();
+    }
+  }
+
+  let cmdSel = 0;
+  function cmdMatches() {
+    const v = els.input.value;
+    if (!/^\/\S*$/.test(v)) return [];
+    return COMMANDS.filter((c) => c.name.startsWith(v.toLowerCase()));
+  }
+  function updateCmdPop() {
+    const matches = cmdMatches();
+    els.cmdPop.replaceChildren();
+    els.cmdPop.classList.toggle("hidden", !matches.length);
+    if (cmdSel >= matches.length) cmdSel = 0;
+    matches.forEach((c, k) => {
+      const b = el("button", "cmd-item" + (k === cmdSel ? " sel" : ""));
+      b.type = "button";
+      b.append(el("span", "cmd-name", c.name), el("span", "cmd-args", c.args), el("span", "cmd-desc", c.desc));
+      b.addEventListener("mousedown", (e) => { e.preventDefault(); pickCommand(c); });
+      els.cmdPop.appendChild(b);
+    });
+  }
+  function pickCommand(c) {
+    els.input.value = c.name + " ";
+    autosize();
+    els.input.focus();
+  }
+
   async function send(text) {
     text = String(text || "").trim();
     if (!text) return;
+    if (/^\/compact(\s|$)/i.test(text)) { compact(text.replace(/^\/compact\s*/i, "")); return; }
+    if (/^\/\S*$/.test(text) && !COMMANDS.some((c) => c.name === text.toLowerCase())) {
+      toast("Unknown command " + text + ". Available: " + COMMANDS.map((c) => c.name).join(", "), "err");
+      return;
+    }
+    if (compacting) { toast("Wait until the conversation is compacted."); return; }
     if (live) { toast("CodePortal is still working. Stop it or wait until it's done."); return; }
     if (!conn.token) { openSettings(); toast("Add the token first.", "err"); return; }
     const conv = activeConv();
@@ -1896,9 +2014,23 @@
     els.input.style.height = "auto";
     els.input.style.height = Math.min(els.input.scrollHeight, window.innerHeight * 0.4) + "px";
     updateSendState();
+    updateCmdPop();
   }
   els.input.addEventListener("input", autosize);
   els.input.addEventListener("keydown", (e) => {
+    const matches = cmdMatches();
+    if (matches.length && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && matches[cmdSel] && matches[cmdSel].name !== els.input.value.trim().toLowerCase()))) {
+      e.preventDefault();
+      pickCommand(matches[cmdSel] || matches[0]);
+      return;
+    }
+    if (matches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      cmdSel = (cmdSel + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+      updateCmdPop();
+      return;
+    }
+    if (e.key === "Escape" && matches.length) { els.input.value = ""; autosize(); return; }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       if (!live) send(els.input.value);

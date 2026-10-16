@@ -109,7 +109,7 @@ const std::vector<CommandInfo>& commandList() {
     static const std::vector<CommandInfo> list = {
         {"/help", "", "show all commands", "General"},
         {"/clear", "", "clear the conversation", "Conversation"},
-        {"/compact", "", "summarize the conversation to free up context", "Conversation"},
+        {"/compact", "[focus]", "summarize the conversation to free up context", "Conversation"},
         {"/retry", "", "resend your last message", "Conversation"},
         {"/copy", "", "copy the last answer to the clipboard", "Conversation"},
         {"/context", "", "show what the agent currently knows", "Conversation"},
