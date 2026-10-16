@@ -7,10 +7,13 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "agenttools.hpp"
 #include "live.hpp"
 #include "providers.hpp"
 #include "state.hpp"
@@ -513,31 +516,92 @@ void cmdLoad(const std::string& rest) {
         }
 }
 
-void cmdCompact() {
-    if (g.history.size() < 2) {
-        std::cout << "Nothing to compact yet.\n";
-        return;
+// Taille approximative de l'historique, en tokens (≈ 4 caractères par token).
+size_t historyTokens() {
+    size_t chars = 0;
+    for (const auto& m : g.history) {
+        chars += m.text.size() + m.thinking.size();
+        for (const auto& tc : m.toolCalls) chars += tc.args.size() + tc.name.size();
     }
-    std::string err, summary;
+    return chars / 4;
+}
+
+// Transcription de l'historique pour le résumé. Les longs textes sont coupés ; si l'ensemble est trop long,
+// on garde la fin (le plus récent compte le plus).
+std::string historyTranscript() {
+    std::string out;
+    for (const auto& m : g.history) {
+        if (m.role == "user") out += "## User\n" + truncate(m.text, 4000) + "\n\n";
+        else if (m.role == "assistant") {
+            out += "## Assistant\n" + truncate(m.text, 3000) + "\n";
+            for (const auto& tc : m.toolCalls) out += "- called " + tc.name + " " + truncate(tc.args, 400) + "\n";
+            out += "\n";
+        } else if (m.role == "tool") {
+            out += "## Tool result (" + m.toolName + ")\n" + truncate(m.text, 800) + "\n\n";
+        }
+    }
+    const size_t limit = 150000;
+    if (out.size() > limit) out = "[... earlier part of the conversation cut ...]\n" + out.substr(out.size() - limit);
+    return out;
+}
+
+struct CompactResult {
+    bool ok = false;
+    std::string summary, error;
+    size_t messagesBefore = 0, tokensBefore = 0, tokensAfter = 0;
+};
+
+// Remplace l'historique par un résumé fait par le modèle : les requêtes suivantes envoient bien moins de contexte.
+// `focus` : ce qu'il faut garder en priorité (facultatif).
+CompactResult compactHistory(const std::string& focus) {
+    CompactResult r;
+    r.messagesBefore = g.history.size();
+    r.tokensBefore = historyTokens();
+    if (g.history.size() < 2) {
+        r.error = "Nothing to compact yet.";
+        return r;
+    }
+    const std::string system =
+        "You summarize a conversation between a user and an autonomous coding agent, so the agent can continue the "
+        "work later without the full history. Write in the language of the conversation. Be factual and complete "
+        "but concise. Use these Markdown sections, skipping empty ones:\n"
+        "## Goal\nWhat the user wants overall.\n"
+        "## Done so far\nWhat was done, with exact file paths, commands and results.\n"
+        "## Key facts\nDecisions, findings, errors met and how they were solved, names, versions, values.\n"
+        "## Current state\nWhere things stand right now.\n"
+        "## Next steps\nWhat remains to do, including anything the user asked for that is not finished.\n"
+        "## User preferences\nHow the user likes things done.";
+    std::string prompt = "Summarize this conversation.";
+    if (!trim(focus).empty()) prompt += " Pay special attention to: " + trim(focus) + ".";
+    prompt += "\n\n" + historyTranscript();
+    r.summary = trim(askAgent(prompt, system, &r.error));
+    if (r.summary.empty()) {
+        if (r.error.empty()) r.error = "The model returned an empty summary.";
+        return r;
+    }
+    g.history.clear();
+    g.history.push_back({"user", "[This conversation was compacted. Summary of everything so far:]\n\n" + r.summary});
+    g.history.push_back({"assistant", "Understood. I have the summary and will continue from there."});
+    r.tokensAfter = historyTokens();
+    r.ok = true;
+    return r;
+}
+
+void cmdCompact(const std::string& focus) {
+    CompactResult r;
     {
         Spinner spin("Compacting");
         spin.start();
-        summary = askAgent(
-            "Summarize this conversation between a user and a coding agent so the agent can continue the work. "
-            "Keep the user's goals, decisions, files created or changed (with paths), important results and what "
-            "remains to do. Be concise and factual, in Markdown bullet points.\n\n" + contextText(),
-            "", &err);
+        r = compactHistory(focus);
     }
-    if (summary.empty()) {
-        printError("Compaction failed: " + err);
+    if (!r.ok) {
+        if (r.messagesBefore < 2) std::cout << "Nothing to compact yet.\n";
+        else printError("Compaction failed: " + r.error);
         return;
     }
-    const size_t before = g.history.size();
-    g.history.clear();
-    g.history.push_back({"user", "Summary of our conversation so far:\n" + summary});
-    g.history.push_back({"assistant", "Understood. I will continue from this summary."});
-    printOk("Compacted " + plural(before, "message") + " into a summary:");
-    for (const auto& l : md::render(summary, frameWidth() - 4)) std::cout << "  " << l << "\n";
+    printOk("Compacted " + plural(r.messagesBefore, "message") + " into a summary (~" + formatTokens(r.tokensBefore) +
+            " → ~" + formatTokens(r.tokensAfter) + " tokens):");
+    for (const auto& l : md::render(r.summary, frameWidth() - 4)) std::cout << "  " << l << "\n";
 }
 
 void cmdDoctor() {
@@ -582,7 +646,7 @@ void cmdDoctor() {
 }
 
 void cmdVersion() {
-    std::cout << P.accent << "✻ " << ansi::reset << ansi::bold << "CodePortal " << kVersion << ansi::reset << P.muted
+    std::cout << gradientColor(0.5) << "◉ " << ansi::reset << ansi::bold << "CodePortal " << kVersion << ansi::reset << P.muted
               << "  (built " << __DATE__ << " · " << providers().size() << " providers · " << toolSpecs().size()
               << " agent tools)" << ansi::reset << "\n";
 }
@@ -666,7 +730,7 @@ bool handleCommand(const std::string& line) {
     else if (cmd == "/save") cmdSave(rest);
     else if (cmd == "/load" || cmd == "/resume") cmdLoad(rest);
     else if (cmd == "/sessions") cmdSessions();
-    else if (cmd == "/compact") cmdCompact();
+    else if (cmd == "/compact") cmdCompact(rest);
     else if (cmd == "/doctor") cmdDoctor();
     else if (cmd == "/version") cmdVersion();
     else if (cmd == "/open") cmdOpen(rest);
@@ -690,21 +754,27 @@ std::string toolTitle(const std::string& name, const std::vector<std::string>& a
         {"context", "Context"},    {"get_context", "Context"}, {"read_file", "Read"},
         {"list_dir", "List"},      {"create_file", "Write"},   {"write_file", "Write"},
         {"edit_file", "Update"},   {"delete_file", "Delete"},  {"create_dir", "Mkdir"},
-        {"run_command", "Bash"}};
+        {"run_command", "Bash"},   {"tree", "Tree"},           {"find_files", "Find"},
+        {"search_files", "Search"}, {"file_info", "Info"},     {"replace_lines", "Update"},
+        {"insert_lines", "Update"}, {"append_file", "Append"}, {"copy_path", "Copy"},
+        {"move_path", "Move"},     {"delete_dir", "Delete"},   {"undo_last_change", "Undo"},
+        {"run_powershell", "PowerShell"}, {"start_process", "Start"}, {"stop_process", "Stop"},
+        {"list_processes", "Processes"}, {"wait", "Wait"},     {"fetch_url", "Fetch"},
+        {"download_file", "Download"}, {"web_search", "WebSearch"}, {"open_path", "Open"},
+        {"clipboard_read", "Clipboard"}, {"clipboard_write", "Clipboard"}, {"system_info", "System"},
+        {"get_env", "Env"},        {"calculate", "Calc"},      {"update_plan", "Plan"},
+        {"save_memory", "Remember"}};
     std::string label = name;
     for (const auto& [n, t] : titles)
         if (n == name) label = t;
     return label + "(" + (args.empty() ? "" : args[0]) + ")";
 }
 
-// Affiche le résultat d'une commande : résumé sous ⎿ (rouge si erreur), diff coloré, sortie si demandée.
-void printOutcome(const ToolResult& r, bool full) {
-    if (!r.summary.empty()) std::cout << (r.ok ? P.muted : P.err) << "  ⎿  " << r.summary << ansi::reset << "\n";
-    // Diff façon Claude Code : numéro de ligne, signe, fond rouge/vert sur toute la largeur.
-    const size_t maxDiff = 40;
+// Diff façon Claude Code : numéro de ligne, signe, fond rouge/vert sur toute la largeur. Au plus `limit` lignes.
+void printDiffLines(const std::vector<DiffLine>& diff, size_t limit) {
     const size_t width = frameWidth() - 6;
-    for (size_t i = 0; i < r.diff.size() && i < maxDiff; ++i) {
-        const DiffLine& d = r.diff[i];
+    for (size_t i = 0; i < diff.size() && i < limit; ++i) {
+        const DiffLine& d = diff[i];
         std::string num = std::to_string(d.lineNo);
         if (num.size() < 4) num = std::string(4 - num.size(), ' ') + num;
         std::string body = num + " " + (d.kind == ' ' ? std::string(" ") : std::string(1, d.kind)) + " " + d.text;
@@ -715,18 +785,64 @@ void printOutcome(const ToolResult& r, bool full) {
             std::cout << "      " << (d.kind == '+' ? P.addBg : P.delBg) << (d.kind == '+' ? P.add : P.del) << body
                       << std::string(pad, ' ') << ansi::reset << "\n";
     }
-    if (r.diff.size() > maxDiff)
-        std::cout << P.muted << "      … +" << r.diff.size() - maxDiff << " lines" << ansi::reset << "\n";
+}
 
+// Sortie texte, indentée sous le résumé. `first` : la première ligne part sous └ si aucun résumé.
+void printOutputLines(const std::vector<std::string>& lines, bool first, size_t limit) {
+    for (size_t i = 0; i < lines.size() && i < limit; ++i)
+        std::cout << P.muted << (i == 0 && first ? "  └  " : "     ") << lines[i] << ansi::reset << "\n";
+}
+
+// Dernière sortie réduite (diff ou sortie coupée) : Ctrl+O l'affiche en entier pendant que l'agent continue.
+struct Expandable {
+    std::string title;
+    ToolResult result;
+    std::vector<std::string> outputLines;
+};
+std::mutex g_expandMu;
+std::optional<Expandable> g_expand;
+
+// Affiche le résultat d'une commande : résumé sous └ (rouge si erreur), diff coloré, sortie si demandée.
+void printOutcome(const ToolResult& r, bool full, const std::string& title = "") {
+    if (!r.summary.empty()) std::cout << (r.ok ? P.muted : P.err) << "  └  " << r.summary << ansi::reset << "\n";
+    const size_t maxDiff = 40, maxLines = 25;
+    printDiffLines(r.diff, maxDiff);
+    bool truncated = r.diff.size() > maxDiff;
+    if (truncated)
+        std::cout << P.muted << "      … +" << r.diff.size() - maxDiff << " lines (ctrl+o to expand)" << ansi::reset << "\n";
+
+    Expandable e{title, r, {}};
     if ((full || r.alwaysShow) && !r.output.empty()) {
-        auto lines = splitLines(r.output);
-        while (!lines.empty() && trim(lines.back()).empty()) lines.pop_back();
-        const size_t maxLines = 25;
-        for (size_t i = 0; i < lines.size() && i < maxLines; ++i)
-            std::cout << P.muted << (i == 0 && r.summary.empty() ? "  ⎿  " : "     ") << lines[i] << ansi::reset << "\n";
-        if (lines.size() > maxLines)
-            std::cout << P.muted << "     … +" << lines.size() - maxLines << " more lines" << ansi::reset << "\n";
+        e.outputLines = splitLines(r.output);
+        while (!e.outputLines.empty() && trim(e.outputLines.back()).empty()) e.outputLines.pop_back();
+        printOutputLines(e.outputLines, r.summary.empty(), maxLines);
+        if (e.outputLines.size() > maxLines) {
+            truncated = true;
+            std::cout << P.muted << "     … +" << e.outputLines.size() - maxLines << " more lines (ctrl+o to expand)"
+                      << ansi::reset << "\n";
+        }
     }
+    if (truncated) {
+        std::lock_guard<std::mutex> lk(g_expandMu);
+        g_expand = std::move(e);
+    }
+}
+
+// Ctrl+O : affiche en entier la dernière sortie réduite. Appelée par le fil du spinner, sans bloquer l'agent.
+void expandLastOutcome() {
+    std::optional<Expandable> e;
+    {
+        std::lock_guard<std::mutex> lk(g_expandMu);
+        e = std::move(g_expand);
+        g_expand.reset();
+    }
+    if (!e) return;
+    LiveView::get().writeAside([&] {
+        std::cout << P.muted << "  └  " << (e->title.empty() ? "full output" : e->title + " · full output") << ansi::reset
+                  << "\n";
+        printDiffLines(e->result.diff, e->result.diff.size());
+        printOutputLines(e->outputLines, false, e->outputLines.size());
+    });
 }
 
 // Exécute une commande (slash, outil ou shell). Retourne le texte renvoyé à l'assistant.
@@ -747,7 +863,7 @@ std::string executeCall(const Call& call, bool fromAgent) {
         ToolResult r;
         r.output = out;
         r.alwaysShow = true;
-        printOutcome(r, false);
+        printOutcome(r, false, cmd);
         return out;
     }
 
@@ -775,7 +891,7 @@ std::string executeCall(const Call& call, bool fromAgent) {
             }
         }
         if (fromAgent) redrawToolCall(title, r.ok ? ToolState::Ok : ToolState::Error);
-        printOutcome(r, !fromAgent);
+        printOutcome(r, !fromAgent, title);
         if (!isTool) return r.output;
         std::string modelText = (r.ok ? "" : "Error: ") + r.summary;
         if (!r.output.empty()) modelText += "\n" + r.output;
@@ -786,6 +902,15 @@ std::string executeCall(const Call& call, bool fromAgent) {
     ToolResult r = failTool("Invalid command: it must start with / or !");
     printOutcome(r, false);
     return r.summary;
+}
+
+// Diff en JSON pour le journal d'activité : [{"k":"+","n":12,"t":"texte"}, ...]
+std::string diffJson(const std::vector<DiffLine>& diff) {
+    std::string o = "[";
+    for (size_t i = 0; i < diff.size() && i < 300; ++i)
+        o += std::string(i ? "," : "") + "{\"k\":" + jsonStr(std::string(1, diff[i].kind)) +
+             ",\"n\":" + std::to_string(diff[i].lineNo) + ",\"t\":" + jsonStr(diff[i].text) + "}";
+    return o + "]";
 }
 
 // Exécute un appel d'outil natif de l'assistant (arguments JSON). Retourne le résultat pour le modèle.
@@ -801,8 +926,9 @@ std::string executeAgentTool(const ToolCallRec& tc) {
     auto has = [&](const char* k) { return parsed && args.find(k) != nullptr; };
 
     const std::string command = str("command");
-    const std::string title = tc.name == "run_command" ? "Bash(" + command + ")" : toolTitle(tc.name, {str("path")});
+    const std::string title = tc.name == "run_command" ? "Bash(" + command + ")" : toolTitle(tc.name, {agentToolArg(args)});
     printToolCall(title, ToolState::Pending);
+    activity("tool_start", "{\"id\":" + jsonStr(tc.id) + ",\"tool\":" + jsonStr(tc.name) + ",\"args\":" + jsonStr(tc.args) + "}");
 
     ToolResult r;
     {
@@ -820,6 +946,8 @@ std::string executeAgentTool(const ToolCallRec& tc) {
             r.output = runShell(command, true, &code, timeout);
             r.ok = code == 0;
             r.alwaysShow = true;
+        } else if (isAgentTool(tc.name)) {  // outils de agenttools.hpp (dont read_file par plage de lignes)
+            r = runAgentTool(tc.name, args);
         } else if (isToolName(tc.name)) {
             Call c;
             c.content = str("content");
@@ -834,9 +962,13 @@ std::string executeAgentTool(const ToolCallRec& tc) {
         }
     }
     redrawToolCall(title, r.ok ? ToolState::Ok : ToolState::Error);
-    printOutcome(r, false);
+    printOutcome(r, false, title);
 
     std::string forModel = (r.ok ? "" : "Error: ") + r.summary;
     if (!r.output.empty()) forModel += (forModel.empty() ? "" : "\n") + r.output;
-    return forModel.empty() ? "Done." : forModel;
+    if (forModel.empty()) forModel = "Done.";
+    activity("tool_end", "{\"id\":" + jsonStr(tc.id) + ",\"tool\":" + jsonStr(tc.name) + ",\"ok\":" +
+                             std::string(r.ok ? "true" : "false") + ",\"summary\":" + jsonStr(r.summary) +
+                             ",\"diff\":" + diffJson(r.diff) + ",\"result\":" + jsonStr(truncate(forModel, 4000)) + "}");
+    return forModel;
 }

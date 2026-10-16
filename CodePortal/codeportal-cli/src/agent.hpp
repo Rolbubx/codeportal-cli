@@ -5,6 +5,8 @@
 // le modèle réponde sans appeler d'outil.
 #pragma once
 
+#include "util.hpp"  // doit venir avant shlobj.h (qui inclut windows.h)
+
 #include <shlobj.h>
 
 #include <memory>
@@ -32,7 +34,13 @@ std::string projectInstructions() {
     return "\n\n# Project instructions (PORTAL.md)\n" + truncate(text, 8000);
 }
 
-// Statistiques d'un tour, affichées à la fin comme dans Claude Code : « ✻ Worked for 12s · 3 tool uses ».
+// Notes enregistrées avec save_memory : données à l'agent dans chaque conversation.
+std::string savedMemory() {
+    const std::string text = xt::memoryText();
+    return text.empty() ? "" : "\n\n# Memory (notes you saved in earlier conversations)\n" + text;
+}
+
+// Statistiques d'un tour, affichées à la fin : « ◉ Done in 12s · 3 tools · ↓ 1.2k tokens ».
 struct TurnStats {
     std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
     size_t tools = 0, tokens = 0;
@@ -41,11 +49,10 @@ struct TurnStats {
         const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         g.usage.agentSeconds += secs;
         if (secs < 3 && tools == 0) return;
-        static const char* verbs[] = {"Worked", "Cooked", "Brewed", "Crafted", "Churned", "Baked", "Pondered"};
-        std::string line = std::string(verbs[(size_t)secs % 7]) + " for " + formatDuration(secs);
-        if (tools) line += " · " + plural(tools, "tool use");
+        std::string line = "Done in " + formatDuration(secs);
+        if (tools) line += " · " + plural(tools, "tool");
         if (tokens) line += " · ↓ " + formatTokens(tokens) + " tokens";
-        std::cout << "\n" << P.accent << "✻ " << ansi::reset << P.muted << line << ansi::reset << "\n" << std::flush;
+        std::cout << "\n" << gradientColor(0.5) << "◉ " << ansi::reset << P.muted << line << ansi::reset << "\n" << std::flush;
     }
 };
 
@@ -71,6 +78,17 @@ std::string systemPrompt() {
            "- Before calling tools, write one short sentence saying what you are about to do; the user sees it.\n"
            "- For files and folders use the dedicated tools (create_file, write_file, edit_file, delete_file, "
            "create_dir, read_file, list_dir). Use run_command only for what they cannot do (build, git, tests...).\n"
+           "- Explore with tree, find_files and search_files rather than dir /s or findstr. read_file returns 500 "
+           "lines at a time: use start_line to read further.\n"
+           "- If edit_file cannot match the text exactly, use replace_lines or insert_lines with line numbers from "
+           "read_file. undo_last_change reverts your last file change.\n"
+           "- Prefer run_powershell over run_command for anything beyond a simple command. Start servers and other "
+           "long-running programs with start_process, then wait and read their log; stop them with stop_process.\n"
+           "- Use web_search and fetch_url for up-to-date information (documentation, error messages, versions). "
+           "Use open_path to show the user a file, folder or website, and calculate for exact arithmetic.\n"
+           "- For tasks with 3 or more steps, call update_plan first with the steps, then update it as each step "
+           "is done.\n"
+           "- When the user asks you to remember something or states a lasting preference, use save_memory.\n"
            "- The folder paths above are exact: use them directly, do not look them up.\n"
            "- run_command has no keyboard input and a time limit: never start interactive programs (cmd, "
            "powershell without -Command, python without a script, editors...).\n"
@@ -80,7 +98,7 @@ std::string systemPrompt() {
            "- Check every tool result yourself and fix errors. Never ask the user for permission to use a tool.\n"
            "- Ask the user only when the request is genuinely ambiguous.\n"
            "- When finished, give a short summary of what you did. Use Markdown (lists, tables, code blocks) "
-           "when it helps readability." + projectInstructions();
+           "when it helps readability." + projectInstructions() + savedMemory();
 }
 
 // Garde l'historique raisonnable sans séparer un appel d'outil de son résultat :
@@ -234,6 +252,7 @@ void chat(const std::string& userText) {
 
         StreamHandlers h;
         h.onThinking = [&](const std::string& t) {  // raisonnement natif, affiché tel quel
+            activity("thinking", "{\"delta\":" + jsonStr(t) + "}");
             if (!thinkingOpen) {
                 closeAnswer();
                 if (lv.inBlock()) lv.endBlock();
@@ -244,6 +263,7 @@ void chat(const std::string& userText) {
             if (!gotUsage) lv.setTokens((estimatedChars += t.size()) / 4);
         };
         h.onText = [&](const std::string& t) {
+            activity("text", "{\"delta\":" + jsonStr(t) + "}");
             if (!answerOpen) {
                 if (trim(t).empty()) return;  // pas de bloc vide
                 if (lv.inBlock()) lv.endBlock();
@@ -263,6 +283,7 @@ void chat(const std::string& userText) {
         h.cancelled = [&] { return lv.interrupted(); };
 
         StreamOutcome out;
+        activity("model", "{\"step\":" + std::to_string(step + 1) + "}");
         lv.startStatus(randomVerb(), true);
         try {
             out = streamProvider(*p, key, model, systemPrompt(), g.history, h);
@@ -289,7 +310,7 @@ void chat(const std::string& userText) {
         lv.stopStatus();
 
         if (out.cancelled) {
-            std::cout << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
+            std::cout << P.err << "  └  Interrupted by user" << ansi::reset << "\n";
             g.history.push_back({"assistant", out.text + "\n[interrupted by the user]"});
             return;
         }
@@ -318,7 +339,7 @@ void chat(const std::string& userText) {
             if (!interrupted && LiveView::get().interrupted()) interrupted = true;
         }
         if (interrupted) {
-            std::cout << P.err << "  ⎿  Interrupted by user" << ansi::reset << "\n";
+            std::cout << P.err << "  └  Interrupted by user" << ansi::reset << "\n";
             break;
         }
 

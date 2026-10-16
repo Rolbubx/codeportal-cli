@@ -42,7 +42,7 @@ struct DiffLine {
 
 struct ToolResult {
     bool ok = true;
-    std::string summary;          // ligne courte affichée sous ⎿
+    std::string summary;          // ligne courte affichée sous └
     std::string output;           // contenu complet (renvoyé au modèle)
     std::vector<DiffLine> diff;   // modification avec contexte
     bool alwaysShow = false;      // afficher la sortie même côté assistant (shell, commandes)
@@ -209,7 +209,10 @@ std::string plural(size_t n, const std::string& word) {
     // entry -> entries (consonne + y), mais key -> keys
     if (n != 1 && word.size() > 1 && word.back() == 'y' && std::string("aeiou").find(word[word.size() - 2]) == std::string::npos)
         return std::to_string(n) + " " + word.substr(0, word.size() - 1) + "ies";
-    return std::to_string(n) + " " + word + (n == 1 ? "" : "s");
+    // match -> matches, process -> processes
+    const bool es = word.size() > 1 && (word.back() == 's' || word.back() == 'x' ||
+                                        word.compare(word.size() - 2, 2, "ch") == 0 || word.compare(word.size() - 2, 2, "sh") == 0);
+    return std::to_string(n) + " " + word + (n == 1 ? "" : es ? "es" : "s");
 }
 
 ToolResult failTool(const std::string& msg) {
@@ -220,6 +223,7 @@ ToolResult failTool(const std::string& msg) {
 }
 
 bool askYesNo(const std::string& question) {
+    if (g_headless) return false;  // pas de clavier : on refuse sans attendre
     std::cout << question << " [y/N] " << std::flush;
     std::string answer;
     std::getline(std::cin, answer);

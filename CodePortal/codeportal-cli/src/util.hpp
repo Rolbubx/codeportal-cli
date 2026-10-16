@@ -7,6 +7,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <winsock2.h>  // avant windows.h (l'API HTTP locale en a besoin)
 #include <windows.h>
 #include <conio.h>
 
@@ -21,6 +22,10 @@
 #include <utility>
 #include <vector>
 
+// Mode --headless : pas d'interface ni de clavier. Les fonctions qui attendraient une touche ou une réponse
+// s'abstiennent (voir api.hpp).
+inline bool g_headless = false;
+
 namespace ansi {
 constexpr const char* reset = "\x1b[0m";
 constexpr const char* bold = "\x1b[1m";
@@ -28,7 +33,7 @@ constexpr const char* dim = "\x1b[2m";
 constexpr const char* italic = "\x1b[3m";
 }  // namespace ansi
 
-// Couleurs selon le thème (couleurs 24 bits, orange « Claude » en accent).
+// Couleurs selon le thème (couleurs 24 bits). Accent CodePortal : violet, reflets cyan.
 struct Palette {
     const char* accent;      // bannière, spinner, puces d'outils
     const char* text;        // texte principal
@@ -51,21 +56,54 @@ struct Palette {
 };
 
 inline Palette P;
+inline bool g_lightTheme = false;
+
+// Dégradé CodePortal : violet → bleu → cyan (24 bits). t entre 0 et 1.
+inline std::string gradientColor(double t) {
+    static const int dark[3][3] = {{150, 128, 255}, {92, 140, 255}, {45, 212, 243}};
+    static const int light[3][3] = {{99, 80, 240}, {37, 99, 235}, {8, 145, 178}};
+    const int(*c)[3] = g_lightTheme ? light : dark;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const int seg = t < 0.5 ? 0 : 1;
+    const double u = seg == 0 ? t * 2 : (t - 0.5) * 2;
+    char buf[32];
+    snprintf(buf, sizeof buf, "\x1b[38;2;%d;%d;%dm", (int)(c[seg][0] + (c[seg + 1][0] - c[seg][0]) * u),
+             (int)(c[seg][1] + (c[seg + 1][1] - c[seg][1]) * u), (int)(c[seg][2] + (c[seg + 1][2] - c[seg][2]) * u));
+    return buf;
+}
+
+// Texte coloré caractère par caractère le long du dégradé (de `from` à `to`).
+inline std::string gradientText(const std::string& s, double from = 0, double to = 1, bool bold = false) {
+    std::vector<std::string> chars;
+    for (size_t i = 0; i < s.size();) {
+        const unsigned char c = (unsigned char)s[i];
+        const size_t len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+        chars.push_back(s.substr(i, len));
+        i += len;
+    }
+    std::string out = bold ? ansi::bold : "";
+    for (size_t i = 0; i < chars.size(); ++i) {
+        if (chars[i] != " ") out += gradientColor(chars.size() > 1 ? from + (to - from) * (double)i / (double)(chars.size() - 1) : from);
+        out += chars[i];
+    }
+    return out + ansi::reset;
+}
 
 inline void applyTheme(const std::string& name) {
+    g_lightTheme = name == "light";
     if (name == "light") {
-        P = {"\x1b[38;2;196;92;58m",   "\x1b[38;2;30;30;30m",    "\x1b[38;2;112;112;112m",
+        P = {"\x1b[38;2;99;80;240m",   "\x1b[38;2;24;26;44m",    "\x1b[38;2;100;104;130m",
              "\x1b[38;2;40;128;60m",   "\x1b[38;2;196;40;60m",   "\x1b[38;2;150;150;150m",
              "\x1b[38;2;20;90;35m",    "\x1b[38;2;140;20;35m",   "\x1b[38;2;70;80;190m",
-             "\x1b[48;2;208;242;214m", "\x1b[48;2;250;214;218m", "\x1b[38;2;245;160;120m",
-             "\x1b[38;2;222;125;90m",  "\x1b[38;2;160;160;160m", "\x1b[38;2;160;40;150m",
+             "\x1b[48;2;208;242;214m", "\x1b[48;2;250;214;218m", "\x1b[38;2;8;160;200m",
+             "\x1b[38;2;130;110;250m", "\x1b[38;2;175;180;210m", "\x1b[38;2;160;40;150m",
              "\x1b[38;2;30;120;50m",   "\x1b[38;2;170;90;0m",    "\x1b[38;2;130;130;130m"};
     } else {
-        P = {"\x1b[38;2;215;119;87m",  "\x1b[38;2;235;235;235m", "\x1b[38;2;145;145;145m",
+        P = {"\x1b[38;2;143;125;255m", "\x1b[38;2;233;235;248m", "\x1b[38;2;148;153;186m",
              "\x1b[38;2;78;186;101m",  "\x1b[38;2;255;107;128m", "\x1b[38;2;120;120;120m",
              "\x1b[38;2;200;255;205m", "\x1b[38;2;255;205;210m", "\x1b[38;2;177;185;249m",
-             "\x1b[48;2;34;84;44m",    "\x1b[48;2;110;38;50m",   "\x1b[38;2;255;214;190m",
-             "\x1b[38;2;240;165;135m", "\x1b[38;2;110;110;110m", "\x1b[38;2;198;146;234m",
+             "\x1b[48;2;34;84;44m",    "\x1b[48;2;110;38;50m",   "\x1b[38;2;125;232;255m",
+             "\x1b[38;2;176;160;255m", "\x1b[38;2;72;78;120m", "\x1b[38;2;198;146;234m",
              "\x1b[38;2;152;195;121m", "\x1b[38;2;229;192;123m", "\x1b[38;2;110;118;129m"};
     }
 }

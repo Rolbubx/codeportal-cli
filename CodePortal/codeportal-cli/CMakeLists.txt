@@ -18,10 +18,12 @@ add_executable(codeportal
     src/tools.hpp
     src/commands.hpp
     src/agent.hpp
+    src/agenttools.hpp
+    src/api.hpp
 )
 
 if(WIN32)
     target_compile_options(codeportal PRIVATE -pthread)
-    target_link_libraries(codeportal PRIVATE winhttp shell32)
+    target_link_libraries(codeportal PRIVATE winhttp shell32 ws2_32)
     target_link_options(codeportal PRIVATE -pthread -static-libgcc -static-libstdc++)
 endif()

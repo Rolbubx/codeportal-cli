@@ -1,8 +1,8 @@
 // live.hpp : affichage en direct, comme Claude Code.
 //
-//   - Ligne de statut animée : ✻ Pondering… (12s · ↓ 1.2k tokens · esc to interrupt)
-//     L'étoile tourne, le verbe scintille, Échap interrompt la génération.
-//   - Écriture au fil du streaming : la réflexion (✻ Thinking…) et la réponse (⏺ ...) s'affichent
+//   - Ligne de statut animée : ⠹ Pondering… (12s · ↓ 1.2k tokens · esc to interrupt)
+//     Le spinner tourne en changeant de couleur (dégradé CodePortal), le verbe scintille, Échap interrompt.
+//   - Écriture au fil du streaming : la réflexion (✧ Thinking…) et la réponse (◆ ...) s'affichent
 //     mot par mot, avec retour à la ligne propre, la ligne de statut restant toujours en dessous.
 //
 // Toutes les écritures passent par un mutex : le fil du spinner et le fil principal ne se
@@ -11,7 +11,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
+#include <functional>
 #include <mutex>
 #include <random>
 #include <string>
@@ -67,6 +69,22 @@ std::string shimmerText(const std::string& text, long pos, const char* base) {
     return out + ansi::reset;
 }
 
+// Ligne de statut : spinner « orbite » dans le dégradé, verbe qui scintille, durée et tokens.
+std::string statusLine(size_t frame, const std::string& verbText, long long secs, size_t tokens, bool esc) {
+    static const char* orbit[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+    const std::string verb = verbText + "…";
+    const long span = (long)displayLength(verb) + 8;
+    const long pos = (long)(frame % (size_t)span) - 4;
+    std::string info = "(" + std::to_string(secs) + "s";
+    if (tokens > 0) info += " · ↓ " + formatTokens(tokens) + " tokens";
+    if (esc) info += " · esc to interrupt";
+    info += ")";
+    if (displayLength(verb) + displayLength(info) + 4 > consoleWidth()) info = "(" + std::to_string(secs) + "s)";
+    const double t = 0.5 + 0.5 * std::sin((double)frame * 0.18);
+    return gradientColor(t) + orbit[frame % 10] + ansi::reset + " " + shimmerText(verb, pos, P.accent) + " " + P.muted +
+           info + ansi::reset;
+}
+
 enum class Block { Thinking, Answer };
 
 class LiveView {
@@ -97,7 +115,7 @@ public:
         {
             std::lock_guard<std::mutex> lk(mu_);
             verb_ = verb;
-            watchEsc_ = watchEsc;
+            watchEsc_ = watchEsc && !g_headless;  // pas de clavier en mode headless
             interrupted_ = false;
             tokens_ = 0;
             start_ = std::chrono::steady_clock::now();
@@ -116,7 +134,33 @@ public:
     }
 
     void setTokens(size_t n) { tokens_ = n; }
-    bool interrupted() const { return interrupted_; }
+    // Vrai après Échap ou après une demande d'arrêt venant de l'API (requestCancel).
+    bool interrupted() const { return interrupted_ || cancelRequested_; }
+    void requestCancel() { cancelRequested_ = true; }
+    void clearCancel() { cancelRequested_ = false; }
+    bool cancelRequested() const { return cancelRequested_; }
+
+    // Ctrl+O pendant que l'agent travaille : `f` est appelée depuis le fil du spinner, hors du verrou,
+    // sans interrompre le flux ni l'outil en cours.
+    void setExpandHandler(std::function<void()> f) { onExpand_ = std::move(f); }
+
+    // Écrit hors du flux (détail d'une sortie demandé avec Ctrl+O). La ligne de statut est effacée puis
+    // redessinée, et le texte en cours de streaming reprend à la ligne suivante.
+    void writeAside(const std::function<void()>& f) {
+        std::lock_guard<std::mutex> lk(mu_);
+        clearStatusLocked();
+        erasePartialLocked();
+        const bool wordBlock = inBlock_ && !mdMode_;
+        if (col_ > 0) std::cout << "\n";
+        f();
+        if (wordBlock) {
+            std::cout << "  ";
+            col_ = 2;
+        } else {
+            col_ = 0;
+        }
+        restoreStatusLocked();
+    }
 
     // ---- blocs de texte en direct -----------------------------------------
     void beginBlock(Block kind) {
@@ -133,9 +177,9 @@ public:
         blockNewlines_ = 0;
         word_.clear();
         if (kind == Block::Thinking) {
-            std::cout << P.muted << ansi::italic << "✻ Thinking…" << ansi::reset << "\n  ";
+            std::cout << P.muted << ansi::italic << "✧ Thinking…" << ansi::reset << "\n  ";
         } else {
-            std::cout << P.text << "⏺" << ansi::reset << " ";
+            std::cout << gradientColor(0) << "◆" << ansi::reset << " ";
         }
         col_ = 2;
         restoreStatusLocked();
@@ -233,6 +277,9 @@ private:
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> interrupted_{false};
+    std::atomic<bool> expandRequested_{false};
+    std::atomic<bool> cancelRequested_{false};  // arrêt demandé par l'API ; ne se remet pas à zéro entre étapes
+    std::function<void()> onExpand_;
     std::atomic<size_t> tokens_{0};
     std::string verb_;
     bool watchEsc_ = false;
@@ -254,11 +301,11 @@ private:
 
     // Mode Markdown
     bool mdMode_ = false;
-    bool mdFirst_ = true;       // la prochaine ligne affichée est la première du bloc (⏺)
+    bool mdFirst_ = true;       // la prochaine ligne affichée est la première du bloc (◆)
     size_t partialLines_ = 0;   // lignes occupées par la ligne en cours
 
     std::string mdPrefixLocked(bool first) const {
-        return first ? std::string(P.text) + "⏺" + ansi::reset + " " : std::string("  ");
+        return first ? gradientColor(0) + "◆" + ansi::reset + " " : std::string("  ");
     }
 
     // Efface la ligne en cours (le curseur est juste en dessous). Si elle dépasse l'écran,
@@ -285,30 +332,22 @@ private:
                     while (_kbhit()) {
                         wint_t ch = _getwch();
                         if (ch == 27) interrupted_ = true;
+                        else if (ch == 15) expandRequested_ = true;  // Ctrl+O
                         else if (ch == 0 || ch == 0xE0) _getwch();
                     }
                 }
                 drawStatusLocked();
             }
+            // Hors du verrou : la fonction d'affichage reprend mu_ pour écrire.
+            if (expandRequested_.exchange(false) && onExpand_) onExpand_();
             std::this_thread::sleep_for(std::chrono::milliseconds(90));
         }
     }
 
     void drawStatusLocked() {
-        static const char* glyphs[] = {"·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"};
+        if (g_headless) return;  // personne ne regarde la console : pas d'animation dans les journaux
         const auto secs = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start_).count();
-        const std::string verb = verb_ + "…";
-        const long span = (long)displayLength(verb) + 8;
-        const long pos = (long)(frame_ % (size_t)span) - 4;
-
-        std::string info = "(" + std::to_string(secs) + "s";
-        if (tokens_ > 0) info += " · ↓ " + formatTokens(tokens_) + " tokens";
-        if (watchEsc_) info += " · esc to interrupt";
-        info += ")";
-        if (displayLength(verb) + displayLength(info) + 4 > consoleWidth()) info = "(" + std::to_string(secs) + "s)";
-
-        std::cout << "\r\x1b[2K" << P.accent << glyphs[(frame_ / 2) % 10] << ansi::reset << " "
-                  << shimmerText(verb, pos, P.accent) << " " << P.muted << info << ansi::reset << std::flush;
+        std::cout << "\r\x1b[2K" << statusLine(frame_, verb_, (long long)secs, tokens_, watchEsc_) << std::flush;
         statusDrawn_ = true;
     }
 

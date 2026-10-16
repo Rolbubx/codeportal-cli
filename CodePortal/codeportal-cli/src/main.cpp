@@ -12,7 +12,7 @@
 //   commands.hpp   commandes /xxx, shell, exécution commune
 //   agent.hpp      prompt système, protocole, boucle d'analyse autonome
 
-#include "agent.hpp"
+#include "api.hpp"
 
 namespace {
 
@@ -35,8 +35,19 @@ void onboarding() {
 
 }  // namespace
 
-int main() {
+//   codeportal.exe --headless [--port 8765] [--bind 127.0.0.1]   : pas d'interface, API HTTP (voir api.hpp)
+int main(int argc, char** argv) {
     setupConsole();
+
+    bool headless = false;
+    unsigned short port = 8765;
+    std::string bind = "127.0.0.1";
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--headless") headless = true;
+        else if (arg == "--port" && i + 1 < argc) port = (unsigned short)std::atoi(argv[++i]);
+        else if (arg == "--bind" && i + 1 < argc) bind = argv[++i];
+    }
 
     const char* appdata = std::getenv("APPDATA");
     g.configDir = std::string(appdata ? appdata : ".") + "\\CodePortal";
@@ -44,6 +55,11 @@ int main() {
     g.cwd = currentDir();
     loadConfig();
     applyTheme(g.theme);
+    if (headless) {
+        g_headless = true;
+        return api::run(bind, port);
+    }
+    LiveView::get().setExpandHandler(expandLastOutcome);
 
     std::cout << "\x1b[2J\x1b[H";
     if (!activeProvider()) onboarding();
