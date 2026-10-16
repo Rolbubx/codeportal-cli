@@ -7,8 +7,16 @@ Codeportal-cli
 | --- | --- |
 | ![Welcome screen, dark](CodePortal/codeportal-cli/docs/screenshots/dark-1-welcome.png) | ![Welcome screen, light](CodePortal/codeportal-cli/docs/screenshots/light-1-welcome.png) |
 | ![The agent working, steps shown live](CodePortal/codeportal-cli/docs/screenshots/dark-2-live.png) | ![Finished answer with web results and the / command menu](CodePortal/codeportal-cli/docs/screenshots/light-4-answer.png) |
-| ![Expanded steps: plan, search and a diff](CodePortal/codeportal-cli/docs/screenshots/dark-3-steps.png) | ![Phone layout](CodePortal/codeportal-cli/docs/screenshots/dark-7-mobile-chat.png) |
+| ![Expanded steps: plan, search and a diff](CodePortal/codeportal-cli/docs/screenshots/dark-3-steps.png) | ![Web search results and the / command menu, dark](CodePortal/codeportal-cli/docs/screenshots/dark-4-answer.png) |
 | ![Terminal, dark](CodePortal/codeportal-cli/docs/screenshots/cli-dark.png) | ![Terminal, light](CodePortal/codeportal-cli/docs/screenshots/cli-light.png) |
+
+### On a phone
+
+Start CodePortal with `--bind 0.0.0.0` and open `http://<your PC's address>:8765` in the phone's browser.
+
+![Phone, dark: welcome, the agent working, expanded steps, chat list](CodePortal/codeportal-cli/docs/screenshots/phone-dark.png)
+
+![Phone, light: welcome and a finished answer](CodePortal/codeportal-cli/docs/screenshots/phone-light.png)
 
 ## Headless mode and local API
 

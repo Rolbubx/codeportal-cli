@@ -565,7 +565,8 @@
     .sugg span.d { display: none; }
     .suggestions { grid-template-columns: minmax(0, 1fr); }
     .composer-wrap { padding: 0 12px 10px; }
-    .kbd-hint, .new-chat kbd, #modelChip { display: none !important; }
+    .kbd-hint, .new-chat kbd, #modelChip, .footnote { display: none !important; }
+    .composer-wrap { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
     .prose { font-size: 16px; }
     .meta-actions { opacity: 1; }
     .pill { max-width: 52%; }
@@ -2278,6 +2279,11 @@
   // Démarrage
   // ===================================================================================
   if (store.get("cp.side", "shown") === "hidden") els.app.classList.add("side-hidden");
+  // Sur téléphone, une invite courte tient sur une ligne.
+  const fullPlaceholder = els.input.placeholder;
+  const fitPlaceholder = () => { els.input.placeholder = mobile() ? "Ask CodePortal anything…" : fullPlaceholder; autosize(); };
+  window.addEventListener("resize", fitPlaceholder);
+  fitPlaceholder();
   applyTheme(theme);
   setConn(conn.token ? "connecting" : "notoken");
   renderThread();
