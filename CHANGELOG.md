@@ -3,7 +3,7 @@
 All notable changes to CodePortal. Versions follow [Semantic Versioning](https://semver.org).
 Each release on GitHub uses the matching section below as its notes.
 
-## [Unreleased]
+## [1.4.0] - 2026-10-17
 
 ### Added
 - `/web` opens the web chat in your browser from the terminal, already signed in. The server runs in the background and stops when you quit CodePortal.
