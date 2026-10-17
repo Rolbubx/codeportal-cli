@@ -22,6 +22,8 @@ add_executable(codeportal
     src/api.hpp
     src/update.hpp
     src/version.hpp
+    src/web.hpp
+    src/qr.hpp
     res/codeportal.rc
 )
 
