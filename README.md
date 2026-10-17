@@ -1,5 +1,36 @@
-# codeportal-cli
-Codeportal-cli
+<p align="center"><img src="CodePortal/codeportal-cli/res/codeportal.png" width="96" alt=""></p>
+
+<h1 align="center">CodePortal</h1>
+
+<p align="center">A coding agent for your Windows terminal: it reads and edits your files, runs commands and searches the web for you.<br>Works with OpenAI, Anthropic, Gemini, Mistral, Groq, xAI, DeepSeek, OpenRouter, Cerebras and Poolside.</p>
+
+<p align="center"><a href="https://github.com/Rolbubx/codeportal-cli/releases/latest">Download</a> · <a href="CHANGELOG.md">Changelog</a> · <a href="#headless-mode-and-local-api">API</a> · <a href="#agent-tools">Agent tools</a></p>
+
+## Install
+
+1. Download **`CodePortal-Setup-<version>.exe`** from the [latest release](https://github.com/Rolbubx/codeportal-cli/releases/latest) and run it.
+2. Choose the install folder. The default, `%LOCALAPPDATA%\Programs\CodePortal`, needs no administrator rights. Then pick the options you want: add to PATH, Start Menu shortcut, desktop shortcut.
+3. Open a **new** terminal in your project folder and type `codeportal`. On first launch, paste an API key.
+
+Windows may show a SmartScreen warning because the files are not signed. Click "More info", then "Run anyway".
+
+Prefer no installer? The release also has a portable zip (`codeportal.exe` + `web/`) and the bare `codeportal.exe`.
+To uninstall, use Windows "Apps & features". Your settings and keys in `%APPDATA%\CodePortal` are kept.
+
+![The installer: welcome, folder, options, done](CodePortal/codeportal-cli/docs/screenshots/installer.png)
+
+## Update
+
+```
+codeportal --update        download and install the latest version (asks first; --yes skips the question)
+codeportal --check         only say whether a newer version exists
+```
+
+Inside CodePortal, `/update` does the same. `/update check` only checks, and `/update auto on|off` turns the daily check on or off.
+
+The update downloads the new `codeportal.exe` from the latest GitHub release. It then checks the file against the release's `SHA256SUMS.txt` and refuses anything that does not match. Finally it swaps the program in place: the old version is kept as `codeportal.old.exe` until the next launch, and put back if anything fails. Once a day, CodePortal also checks in the background, without slowing anything down, and the banner tells you when a new version is out.
+
+If CodePortal is installed in a folder you can't write to (for example `C:\Program Files`), run the update from a terminal opened as administrator.
 
 ## Screenshots
 
@@ -67,3 +98,23 @@ The agent calls these tools by itself. File changes can be undone (`/undo` in th
 | Agent | `calculate`, `update_plan` (a checklist shown on the chat page), `save_memory` (notes kept in `%APPDATA%\CodePortal\memory.md` and given to the agent in every conversation), `get_context` |
 
 Safety: `delete_dir` refuses drive roots, your main user folders, system folders and the working folder; `get_env` never shows values whose names look like secrets (keys, tokens, passwords).
+
+## Building
+
+From Windows, with the MinGW that ships with CLion: run `CodePortal\codeportal-cli\build.bat` (or use `CMakeLists.txt`). It produces `build\codeportal.exe`.
+
+From Linux, with `g++-mingw-w64-x86-64-posix`, `nsis` and `zip` installed, run `CodePortal/codeportal-cli/scripts/build-release.sh`. It builds everything a release contains into `dist/`: the exe, the installer, the zip and `SHA256SUMS.txt`.
+
+Every push and pull request is built by the [Build workflow](.github/workflows/ci.yml), and the files can be downloaded from the run's artifacts.
+
+## Releasing a new version
+
+1. Change the version in [`src/version.hpp`](CodePortal/codeportal-cli/src/version.hpp) (`CODEPORTAL_VERSION` and the three numbers).
+2. Add a `## [x.y.z]` section at the top of [`CHANGELOG.md`](CHANGELOG.md).
+3. Merge into `main`, then tag it:
+   ```
+   git tag v1.4.0
+   git push origin v1.4.0
+   ```
+
+The [Release workflow](.github/workflows/release.yml) checks that the tag matches the version, builds everything, and publishes the release with the changelog section as its notes. From then on, `codeportal --update` finds it.

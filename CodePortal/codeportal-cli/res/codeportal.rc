@@ -1,0 +1,30 @@
+// Ressources de codeportal.exe : icône et propriétés (clic droit > Propriétés > Détails).
+#include <winver.h>
+#include "../src/version.hpp"
+
+1 ICON "codeportal.ico"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION CODEPORTAL_VERSION_MAJOR, CODEPORTAL_VERSION_MINOR, CODEPORTAL_VERSION_PATCH, 0
+PRODUCTVERSION CODEPORTAL_VERSION_MAJOR, CODEPORTAL_VERSION_MINOR, CODEPORTAL_VERSION_PATCH, 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "CodePortal"
+            VALUE "FileDescription", "CodePortal - coding agent for the terminal"
+            VALUE "FileVersion", CODEPORTAL_VERSION
+            VALUE "InternalName", "codeportal"
+            VALUE "OriginalFilename", "codeportal.exe"
+            VALUE "ProductName", "CodePortal"
+            VALUE "ProductVersion", CODEPORTAL_VERSION
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

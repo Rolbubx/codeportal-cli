@@ -33,13 +33,28 @@ void onboarding() {
     if (!key.empty()) addKeyAuto(key);
 }
 
+void printUsage() {
+    std::cout << "CodePortal " << kVersion << " - coding agent for the terminal\n\n"
+              << "Usage:\n"
+              << "  codeportal                       start the interactive interface\n"
+              << "  codeportal --headless [--port N] [--bind ADDR]\n"
+              << "                                   run the local HTTP API and web chat (default 127.0.0.1:8765)\n"
+              << "  codeportal --update [--yes]      install the latest version from GitHub\n"
+              << "  codeportal --check               only check whether a newer version exists\n"
+              << "  codeportal --version             print the version\n\n"
+              << "Options:\n"
+              << "  --no-update-check                skip the daily background update check\n"
+              << "  --add-to-path / --remove-from-path\n"
+              << "                                   add or remove this folder in your PATH (used by the installer)\n";
+}
+
 }  // namespace
 
 //   codeportal.exe --headless [--port 8765] [--bind 127.0.0.1]   : pas d'interface, API HTTP (voir api.hpp)
 int main(int argc, char** argv) {
     setupConsole();
 
-    bool headless = false;
+    bool headless = false, update = false, checkOnly = false, assumeYes = false, autoCheck = true;
     unsigned short port = 8765;
     std::string bind = "127.0.0.1";
     for (int i = 1; i < argc; ++i) {
@@ -47,6 +62,22 @@ int main(int argc, char** argv) {
         if (arg == "--headless") headless = true;
         else if (arg == "--port" && i + 1 < argc) port = (unsigned short)std::atoi(argv[++i]);
         else if (arg == "--bind" && i + 1 < argc) bind = argv[++i];
+        else if (arg == "--update") update = true;
+        else if (arg == "--check") checkOnly = true;
+        else if (arg == "--yes" || arg == "-y") assumeYes = true;
+        else if (arg == "--no-update-check") autoCheck = false;
+        else if (arg == "--add-to-path" || arg == "--remove-from-path")  // utilisés par l'installeur
+            return upd::editUserPath(arg == "--add-to-path") ? 0 : 1;
+        else if (arg == "--version" || arg == "-v") {
+            std::cout << "CodePortal " << kVersion << "\n";
+            return 0;
+        } else if (arg == "--help" || arg == "-h") {
+            printUsage();
+            return 0;
+        } else {
+            std::cerr << "Unknown option: " << arg << " (see codeportal --help)\n";
+            return 2;
+        }
     }
 
     const char* appdata = std::getenv("APPDATA");
@@ -55,8 +86,12 @@ int main(int argc, char** argv) {
     g.cwd = currentDir();
     loadConfig();
     applyTheme(g.theme);
+    upd::cleanupOldExe();
+    if (update || checkOnly) return upd::runUpdate(checkOnly, assumeYes);
+    if (autoCheck) upd::startBackgroundCheck();
     if (headless) {
         g_headless = true;
+        printUpdateNotice();
         return api::run(bind, port);
     }
     LiveView::get().setExpandHandler(expandLastOutcome);
@@ -65,6 +100,7 @@ int main(int argc, char** argv) {
     if (!activeProvider()) onboarding();
     std::cout << "\x1b[2J\x1b[H";
     printBanner();
+    printUpdateNotice();
     printTips();
 
     for (;;) {
