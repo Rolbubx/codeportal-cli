@@ -3,6 +3,11 @@
 All notable changes to CodePortal. Versions follow [Semantic Versioning](https://semver.org).
 Each release on GitHub uses the matching section below as its notes.
 
+## [1.3.1] - 2026-10-17
+
+### Added
+- Releases can be published from GitHub without git: **Actions → Release → Run workflow** creates the version tag and publishes the release.
+
 ## [1.3.0] - 2026-10-17
 
 ### Added
