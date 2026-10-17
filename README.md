@@ -111,10 +111,12 @@ Every push and pull request is built by the [Build workflow](.github/workflows/c
 
 1. Change the version in [`src/version.hpp`](CodePortal/codeportal-cli/src/version.hpp) (`CODEPORTAL_VERSION` and the three numbers).
 2. Add a `## [x.y.z]` section at the top of [`CHANGELOG.md`](CHANGELOG.md).
-3. Merge into `main`, then tag it:
-   ```
-   git tag v1.4.0
-   git push origin v1.4.0
-   ```
+3. Merge into `main`, then publish, either way:
+   - On GitHub: **Actions → Release → Run workflow** (branch `main`). The tag `v1.4.0` is created for you.
+   - Or with git:
+     ```
+     git tag v1.4.0
+     git push origin v1.4.0
+     ```
 
-The [Release workflow](.github/workflows/release.yml) checks that the tag matches the version, builds everything, and publishes the release with the changelog section as its notes. From then on, `codeportal --update` finds it.
+The [Release workflow](.github/workflows/release.yml) checks the version, builds everything, and publishes the release with the changelog section as its notes. From then on, `codeportal --update` finds it.
