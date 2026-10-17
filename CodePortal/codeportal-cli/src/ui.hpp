@@ -130,6 +130,7 @@ const std::vector<CommandInfo>& commandList() {
         {"/doctor", "", "check that everything works", "Settings"},
         {"/version", "", "CodePortal version", "Settings"},
         {"/update", "[check | auto on|off]", "install the latest version from GitHub", "Settings"},
+        {"/web", "[phone | stop | status]", "open the web chat in your browser (or on your phone)", "General"},
         {"/exit", "", "quit CodePortal", "General"},
     };
     return list;

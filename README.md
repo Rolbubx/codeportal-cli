@@ -49,6 +49,19 @@ Start CodePortal with `--bind 0.0.0.0` and open `http://<your PC's address>:8765
 
 ![Phone, light: welcome and a finished answer](CodePortal/codeportal-cli/docs/screenshots/phone-light.png)
 
+## Web chat from the terminal
+
+Inside CodePortal, type:
+
+| Command | What it does |
+| --- | --- |
+| `/web` | Starts the web chat and opens it in your browser, already signed in. |
+| `/web phone` | Makes it reachable on your Wi-Fi and shows a **QR code**: scan it with your phone to control CodePortal from there. |
+| `/web status` | Shows whether it is running and where. |
+| `/web stop` | Stops it. It also stops by itself when you quit CodePortal. |
+
+Add a port number to use another one, for example `/web 9000`. The web chat runs in the current folder, with its own conversations. The first time you use `/web phone`, Windows may ask whether CodePortal can use the network: allow it on **private** networks. Anyone who has the link (or the QR code) can use the agent on your PC, so only use it on a network you trust.
+
 ## Headless mode and local API
 
 CodePortal can run without its console interface, as a local server that other programs call:

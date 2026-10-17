@@ -15,6 +15,7 @@
 
 #include "agenttools.hpp"
 #include "update.hpp"
+#include "web.hpp"
 #include "live.hpp"
 #include "providers.hpp"
 #include "state.hpp"
@@ -673,6 +674,101 @@ void cmdUpdate(const std::string& rest) {
     upd::runUpdate(arg == "check", false);
 }
 
+// /web [phone | stop | status] [port] : le chat web, ouvert dans le navigateur (voir web.hpp).
+void cmdWeb(const std::string& rest) {
+    std::string sub;
+    unsigned short port = web::kDefaultPort;
+    for (const auto& w : splitWords(rest)) {
+        if (!w.empty() && w.find_first_not_of("0123456789") == std::string::npos && w.size() <= 5) {
+            const int p = std::atoi(w.c_str());
+            if (p <= 0 || p > 65535) {
+                printError("Invalid port: " + w);
+                return;
+            }
+            port = (unsigned short)p;
+        } else if (sub.empty()) {
+            sub = w;
+        } else {
+            sub = "?";
+        }
+    }
+    if (sub == "stop") {
+        if (!web::running()) {
+            std::cout << "The web chat is not running.\n";
+            return;
+        }
+        web::stop();
+        printOk("Web chat stopped.");
+        return;
+    }
+    if (sub == "status") {
+        if (!web::running()) std::cout << "The web chat is not running. Start it with /web.\n";
+        else
+            std::cout << "Web chat running on " << web::localUrl()
+                      << (web::server().lan ? " (also reachable from your network)" : "") << "\n";
+        return;
+    }
+    const bool phone = sub == "phone" || sub == "lan";
+    if (!sub.empty() && !phone) {
+        printError("Usage: /web [phone | stop | status] [port]");
+        return;
+    }
+    if (!activeProvider()) {
+        printError("Add an API key first (/key), the web chat uses the same one.");
+        return;
+    }
+
+    std::string ip;
+    if (phone) {
+        ip = web::lanAddress();
+        if (ip.empty()) {
+            printError("No network address found: is this PC connected to Wi-Fi or Ethernet?");
+            return;
+        }
+    }
+    if (web::running() && phone && !web::server().lan) web::stop();  // relancé, joignable depuis le réseau
+    if (web::running()) {
+        port = web::server().port;
+    } else if (web::answers(port)) {
+        if (phone) {
+            printError("Port " + std::to_string(port) + " is already used by another server. Stop it, or try /web phone " +
+                       std::to_string(port + 1));
+            return;
+        }
+        std::cout << P.muted << "A server is already running on port " << port << ", opening it." << ansi::reset << "\n";
+    } else {
+        std::string err;
+        {
+            Spinner spin("Starting the web chat");
+            spin.start();
+            err = web::start(port, phone);
+        }
+        if (!err.empty()) {
+            printError(err);
+            return;
+        }
+    }
+    const std::string token = web::readToken();
+    const std::string local = "http://127.0.0.1:" + std::to_string(port);
+
+    if (!phone) {
+        if (web::openBrowser(local + "/#token=" + token)) printOk("Web chat opened in your browser · " + local);
+        else printOk("Web chat running · open " + local + "/#token=" + token);
+        std::cout << P.muted << "  It has its own chats, in this folder. /web phone to use it from your phone · /web stop"
+                  << ansi::reset << "\n";
+        return;
+    }
+
+    const std::string url = "http://" + ip + ":" + std::to_string(port) + "/#token=" + token;
+    std::cout << "\n  " << ansi::bold << "Scan with your phone" << ansi::reset << P.muted << " (same Wi-Fi as this PC)"
+              << ansi::reset << "\n\n";
+    for (const auto& l : qr::terminalLines(qr::Code::encode(url, qr::Ecc::Low))) std::cout << "  " << l << "\n";
+    std::cout << "\n  " << P.muted << "or open " << ansi::reset << url << "\n"
+              << P.muted << "  If Windows asks, allow CodePortal on private networks. Anyone with this link can use the\n"
+              << "  agent on this PC, so only share it on a network you trust. /web stop when you are done."
+              << ansi::reset << "\n";
+}
+
 // Sous la bannière : une version plus récente a été vue lors d'une vérification précédente.
 void printUpdateNotice() {
     const std::string latest = upd::availableUpdate();
@@ -765,6 +861,7 @@ bool handleCommand(const std::string& line) {
     else if (cmd == "/doctor") cmdDoctor();
     else if (cmd == "/version") cmdVersion();
     else if (cmd == "/update") cmdUpdate(rest);
+    else if (cmd == "/web") cmdWeb(rest);
     else if (cmd == "/open") cmdOpen(rest);
     else if (cmd == "/md") cmdMd(rest);
     else if (cmd == "/memory") cmdMemory();
