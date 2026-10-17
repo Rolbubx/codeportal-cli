@@ -1,0 +1,7 @@
+# Build outputs (releases are built by .github/workflows/release.yml)
+CodePortal/codeportal-cli/dist/
+CodePortal/codeportal-cli/obj/
+CodePortal/codeportal-cli/build/*
+!CodePortal/codeportal-cli/build/codeportal.exe
+cmake-build-*/
+.idea/

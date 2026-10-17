@@ -1,0 +1,29 @@
+# Builds the executable and the installer on every push and pull request, so a broken build
+# is seen before it is merged. The files are kept as a downloadable artifact for 14 days.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: CodePortal/codeportal-cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64 and NSIS
+        run: sudo apt-get update && sudo apt-get install -y g++-mingw-w64-x86-64-posix nsis zip
+
+      - name: Build
+        run: scripts/build-release.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codeportal-windows-x64
+          path: CodePortal/codeportal-cli/dist/
+          retention-days: 14

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "agenttools.hpp"
+#include "update.hpp"
 #include "live.hpp"
 #include "providers.hpp"
 #include "state.hpp"
@@ -314,8 +315,6 @@ std::string runShell(const std::string& cmd, bool fromAgent, int* exitCode = nul
 // ---------------------------------------------------------------------------
 // Session, projet et diagnostic
 // ---------------------------------------------------------------------------
-constexpr const char* kVersion = "1.1.0";
-
 std::string portalPath() { return g.cwd + "\\PORTAL.md"; }
 
 std::string formatDuration(double secs) {
@@ -651,6 +650,38 @@ void cmdVersion() {
               << " agent tools)" << ansi::reset << "\n";
 }
 
+// /update : installe la dernière version · /update check : vérifie seulement · /update auto on|off
+void cmdUpdate(const std::string& rest) {
+    const std::string arg = trim(rest);
+    if (arg == "auto" || startsWith(arg, "auto ")) {
+        const std::string v = trim(arg.substr(4));
+        upd::Settings s = upd::loadSettings();
+        if (v == "on" || v == "off") {
+            s.autoCheck = v == "on";
+            upd::saveSettings(s);
+        } else if (!v.empty()) {
+            printError("Usage: /update auto on|off");
+            return;
+        }
+        printOk(std::string("Daily update check: ") + (s.autoCheck ? "on" : "off"));
+        return;
+    }
+    if (!arg.empty() && arg != "check") {
+        printError("Usage: /update [check | auto on|off]");
+        return;
+    }
+    upd::runUpdate(arg == "check", false);
+}
+
+// Sous la bannière : une version plus récente a été vue lors d'une vérification précédente.
+void printUpdateNotice() {
+    const std::string latest = upd::availableUpdate();
+    if (latest.empty()) return;
+    std::cout << "  " << gradientColor(0.5) << "◉" << ansi::reset << " " << P.muted << "update  " << ansi::reset
+              << P.text << upd::bare(latest) << ansi::reset << P.muted << " is available · run " << ansi::reset
+              << P.accent << "/update" << ansi::reset << "\n";
+}
+
 void cmdOpen(const std::string& rest) {
     if (rest.empty()) {
         printError("Usage: /open <file or folder>");
@@ -733,6 +764,7 @@ bool handleCommand(const std::string& line) {
     else if (cmd == "/compact") cmdCompact(rest);
     else if (cmd == "/doctor") cmdDoctor();
     else if (cmd == "/version") cmdVersion();
+    else if (cmd == "/update") cmdUpdate(rest);
     else if (cmd == "/open") cmdOpen(rest);
     else if (cmd == "/md") cmdMd(rest);
     else if (cmd == "/memory") cmdMemory();
